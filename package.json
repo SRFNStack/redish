@@ -1,0 +1,29 @@
+{
+  "name": "redish",
+  "version": "0.0.1",
+  "description": "js for using redis as a primary data store",
+  "author": "Robert Kempton <r@snow87.com>",
+  "private": false,
+  "homepage": "https://github.com/narcolepticsnowman/redish",
+  "license": "MIT",
+  "files": [
+    "src/*",
+    "LICENSE.txt",
+    "README.md"
+  ],
+  "main": "src/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:narcolepticsnowman/redish.git"
+  },
+  "keywords": [
+    "redis",
+    "database",
+    "datastore",
+    "collection",
+    "redish"
+  ],
+  "dependencies": {
+    "redis": "3.0.2"
+  }
+}
