@@ -1,20 +1,34 @@
 const redish = require( '../src/index.js' )
 
+const redis = require("redis");
+const client = redis.createClient();
+client.auth("secrets", console.log)
 
+redish.setClient(client)
 const users = redish.collection( 'users' )
 
-saved = users.save( {
-                name: 'bob',
-                datas: {
-                    some: {
-                        foos: true
-                    },
-                    rayray: [ 1, 'a', { nested: { rayray: [ true, false ], nums: 1.1 } } ],
-                    stuff: -9
+run = async ()=> {
 
-                }
-            } )
+    console.log(process.hrtime())
 
-found = users.findOneByKey(saved.key)
+    let orig = {
+        name: 'bob',
+        datas: {
+            some: {
+                foos: true
+            },
+            rayray: [ { nested: { rayray: [ true, false ]} } ],
+            stuff: -9
 
-console.log(saved.name === found.name, saved.datas.rayray[2].nested.rayray[0] === true)
+        }
+    }
+    let saved = await users.save( orig )
+
+    let found = await users.findOneByKey( saved.key )
+    console.log(process.hrtime())
+    console.log( orig.datas.stuff === found.datas.stuff, saved.datas.stuff === found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] === true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] === true  )
+
+    console.log( orig.datas.stuff == found.datas.stuff,  saved.datas.stuff == found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] == true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] == true )
+}
+
+run().then(console.log).catch(console.error)

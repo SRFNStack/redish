@@ -24,6 +24,7 @@
     "redish"
   ],
   "dependencies": {
+    "isomorphic-mongo-objectid": "^1.0.9",
     "redis": "3.0.2"
   }
 }

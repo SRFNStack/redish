@@ -1,6 +1,9 @@
+const ObjectID = require( 'isomorphic-mongo-objectid' )
+const { flatten, inflate } = require( './flattener.js' )
+
 let client = null
 
-const assertClientSet = ()=>{if(!!client) throw new Error("Client must be set before using a collection")}
+const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
 
 module.exports = {
 
@@ -12,7 +15,7 @@ module.exports = {
      *
      * This is left to the user to allow auth configuration and the like
      */
-    setClient(clientToSet){
+    setClient( clientToSet ) {
         client = clientToSet
     },
     /**
@@ -29,7 +32,7 @@ module.exports = {
      * @param key
      * @returns {{save(Object), findOneByKey(*), findOneBy(*,*), findAll(number=, number=)}}
      */
-    collection(key) {
+    collection( key ) {
         assertClientSet()
         return {
             /**
@@ -46,9 +49,18 @@ module.exports = {
              * A Transactional MULTI command is used to ensure the key add to the sorted set and the update to all of the keys succeed as a transaction.
              * @param obj The saved object
              */
-            save(obj) {
-
-
+            async save( obj ) {
+                if( !obj || typeof obj !== 'object' )
+                    throw new Error( 'You can only save objects with redish' )
+                if( !obj.id || obj.key ) {
+                    obj.key = ObjectID().toString()
+                }
+                const bigFlatty = Object.entries( flatten( obj ) ).flat()
+                return new Promise( ( resolve, reject ) =>
+                                        client.hmset( obj.id || obj.key, bigFlatty, ( err, res ) =>{
+                                            if( err ) reject( err )
+                                            resolve( obj )
+                                        } ) )
             },
             /**
              * Find one object in the collection by it's key
@@ -56,15 +68,22 @@ module.exports = {
              * This performs a HGETALL then inflates the object from it's path value pairs
              * @param key
              */
-            findOneByKey(key) {
-
+            findOneByKey( key ) {
+                if(!key) throw new Error("You must provide a key to find")
+                return new Promise((resolve, reject) => {
+                    client.hgetall(key, (err, res)=>{
+                        if(err) reject(err)
+                        console.log(process.hrtime())
+                        resolve(inflate(res))
+                    })
+                })
             },
             /**
              * Find all of the objects stored in this collection, one page at a time
              * @param page The page number to get
              * @param size The number of objects to retrieve at a time
              */
-            findAll(page = 0, size = 10) {
+            findAll( page = 0, size = 10 ) {
 
             },
             /**
@@ -73,7 +92,7 @@ module.exports = {
              * @param field
              * @param value
              */
-            findOneBy(field, value){
+            findOneBy( field, value ) {
                 //for each document in each page of the collection, scan the documents and search for matches
             }
         }
