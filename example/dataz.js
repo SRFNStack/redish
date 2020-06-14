@@ -9,8 +9,6 @@ const users = redish.collection( 'users' )
 
 run = async ()=> {
 
-    console.log(process.hrtime())
-
     let orig = {
         name: 'bob',
         datas: {
@@ -25,7 +23,7 @@ run = async ()=> {
     let saved = await users.save( orig )
 
     let found = await users.findOneByKey( saved.key )
-    console.log(process.hrtime())
+
     console.log( orig.datas.stuff === found.datas.stuff, saved.datas.stuff === found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] === true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] === true  )
 
     console.log( orig.datas.stuff == found.datas.stuff,  saved.datas.stuff == found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] == true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] == true )

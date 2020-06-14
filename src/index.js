@@ -1,9 +1,16 @@
 const ObjectID = require( 'isomorphic-mongo-objectid' )
-const { flatten, inflate } = require( './flattener.js' )
+const { flatten, inflate, dateSerializer, dateDeserializer} = require( 'jpflat' )
 
 let client = null
 
+let customStringSerializers = []
+
 const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
+
+const primitiveToPrefixedString =
+const serializers = [dateSerializer]
+const deserializers = [dateDeserializer]
+
 
 module.exports = {
 
@@ -19,6 +26,28 @@ module.exports = {
         client = clientToSet
     },
     /**
+     * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
+     *
+     * You can add more custom serializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
+     * serializers compatible with that.
+     *
+     *
+     */
+    addCustomStringSerializer(serializer) {
+        serializers.push(serializer)
+    },
+    /**
+     * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
+     *
+     * You can add more custom deserializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
+     * deserializers compatible with that.
+     *
+     *
+     */
+    addCustomStringDeserializer(deserializer) {
+        deserializer.push(deserializer)
+    },
+    /**
      * A collection is a logical grouping of objects of similarish type.
      *
      * Collections should be as small as possible. For instance, a single user should have
@@ -27,9 +56,11 @@ module.exports = {
      *
      * Complex find operations that involve searching multiple collections or large collections can be achieved using the redisearch module
      *
-     * TODO: Add helpers for redisearch operations and indexing
+     * TODO: Add basic single key indexing
+     * TODO: Add support for "sort indexes" for speedy paging using zsets
+     * TODO: Add support for unique constraints using sets
      *
-     * @param key
+     * @param key The key for this collection. A good key might be something like `${customerId}:widgets`.
      * @returns {{save(Object), findOneByKey(*), findOneBy(*,*), findAll(number=, number=)}}
      */
     collection( key ) {
@@ -39,9 +70,11 @@ module.exports = {
              * Save an object to redis and add it to the collection
              *
              * When saving an object these steps are followed
-             * A key is generated for objects if no truthy "key" or "id" field is provided and added to the object as the field "key"
+             * A key is generated for objects if no truthy "id" field is provided and added to the object as the field "id"
              * The object is flattened to a set of path/value pairs
              * The key is added to the collection sorted set
+             *
+             * Storing the keys this way instead of as a json string allows scanning and other functionality in redis that a simple string would not
              *
              * Currently empty arrays and empty sets will not be serialized because there is no way to represent them in redis, this means deserialized values will not be
              * truly equal, though in practice this is usable.
@@ -52,12 +85,12 @@ module.exports = {
             async save( obj ) {
                 if( !obj || typeof obj !== 'object' )
                     throw new Error( 'You can only save objects with redish' )
-                if( !obj.id || obj.key ) {
-                    obj.key = ObjectID().toString()
+                if( !obj.id ) {
+                    obj.id = ObjectID().toString()
                 }
-                const bigFlatty = Object.entries( flatten( obj ) ).flat()
+                const bigFlatty = stringifyValues(Object.entries( flatten( obj ) ).flat())
                 return new Promise( ( resolve, reject ) =>
-                                        client.hmset( obj.id || obj.key, bigFlatty, ( err, res ) =>{
+                                        client.hmset( obj.id , bigFlatty, ( err ) =>{
                                             if( err ) reject( err )
                                             resolve( obj )
                                         } ) )
@@ -73,7 +106,6 @@ module.exports = {
                 return new Promise((resolve, reject) => {
                     client.hgetall(key, (err, res)=>{
                         if(err) reject(err)
-                        console.log(process.hrtime())
                         resolve(inflate(res))
                     })
                 })
