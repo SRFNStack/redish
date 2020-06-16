@@ -2,15 +2,27 @@ const ObjectID = require( 'isomorphic-mongo-objectid' )
 const { flatten, inflate, dateSerializer, dateDeserializer} = require( 'jpflat' )
 
 let client = null
+let mode = "redis"
+let commands = {
+    "redis":{
+        GETOBJ: "HGETALL",
+        SETOBJ: "HMSET"
+    },
+    "ssdb":{
+        GETOBJ: "multi_hget",
+        SETOBJ: "multi_hset"
+    }
+}
 
 let customStringSerializers = []
 
 const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
 
-const primitiveToPrefixedString =
+// const primitiveToPrefixedString =
 const serializers = [dateSerializer]
 const deserializers = [dateDeserializer]
-
+const { promisify } = require('util')
+let cmd = null
 
 module.exports = {
 
@@ -24,6 +36,18 @@ module.exports = {
      */
     setClient( clientToSet ) {
         client = clientToSet
+        cmd = promisify(client.send_command).bind(client)
+    },
+    /**
+     * Set the client mode to either redis or ssdb.
+     *
+     * Default mode is redis
+     * @param newMode either "redis" or "ssdb"
+     */
+    setMode(newMode){
+        if(["redis","ssdb"].indexOf(newMode) < 0)
+            throw new Error("Invalid mode: "+newMode)
+        mode = newMode
     },
     /**
      * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
@@ -88,34 +112,26 @@ module.exports = {
                 if( !obj.id ) {
                     obj.id = ObjectID().toString()
                 }
-                const bigFlatty = stringifyValues(Object.entries( flatten( obj ) ).flat())
-                return new Promise( ( resolve, reject ) =>
-                                        client.hmset( obj.id , bigFlatty, ( err ) =>{
-                                            if( err ) reject( err )
-                                            resolve( obj )
-                                        } ) )
+                const bigFlatty = Object.entries( await flatten( obj ) ).flat()
+
+                return await cmd(commands[mode].SETOBJ, [obj.id, ...bigFlatty]).then(()=>obj)
             },
             /**
              * Find one object in the collection by it's key
              *
              * This performs a HGETALL then inflates the object from it's path value pairs
-             * @param key
+             * @param id
              */
-            findOneByKey( key ) {
-                if(!key) throw new Error("You must provide a key to find")
-                return new Promise((resolve, reject) => {
-                    client.hgetall(key, (err, res)=>{
-                        if(err) reject(err)
-                        resolve(inflate(res))
-                    })
-                })
+            async findOneById( id ) {
+                if(!id) throw new Error("You must provide a key to find")
+                return await cmd(commands[mode].GETOBJ, [id]).then((res)=>inflate(res))
             },
             /**
              * Find all of the objects stored in this collection, one page at a time
              * @param page The page number to get
              * @param size The number of objects to retrieve at a time
              */
-            findAll( page = 0, size = 10 ) {
+            async findAll( page = 0, size = 10 ) {
 
             },
             /**
@@ -124,7 +140,7 @@ module.exports = {
              * @param field
              * @param value
              */
-            findOneBy( field, value ) {
+            async findOneBy( field, value ) {
                 //for each document in each page of the collection, scan the documents and search for matches
             }
         }
