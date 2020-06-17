@@ -13,7 +13,7 @@ let commands = {
         DELFIELDS: 'HDEL'
     },
     'ssdb': {
-        GETOBJ: 'multi_hget',
+        GETOBJ: 'hgetall',
         SETOBJ: 'multi_hset',
         DELFIELDS: 'multi_hdel'
     }
@@ -154,8 +154,10 @@ module.exports = {
 
                 //This hkeys lookup is necessary to ensure that any keys that were deleted get reflected in the database
                 //otherwise the deleted keys will get reloaded next time the object loads
-                const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) ).filter( ( obj, key ) => !flatObj.hasOwnProperty( key ) )
-                await cmd(commands[mode].DELFIELDS, deletedKeys)
+                const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) )
+                    .filter( ( key ) => ! flatObj.hasOwnProperty( key ) )
+                if(deletedKeys && deletedKeys.length > 0)
+                    await cmd(commands[mode].DELFIELDS, [obj.id, ...deletedKeys])
                 await cmd( commands[ mode ].SETOBJ, [ obj.id, ...Object.entries( flatObj ).flat() ] )
                 return obj
             },

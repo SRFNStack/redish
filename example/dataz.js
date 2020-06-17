@@ -5,6 +5,7 @@ const client = redis.createClient(8888);
 client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
 
 redish.setClient(client)
+redish.setMode('ssdb')
 const users = redish.collection( 'users' )
 
 run = async ()=> {
@@ -27,6 +28,18 @@ run = async ()=> {
     console.log( orig.datas.stuff === found.datas.stuff, saved.datas.stuff === found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] === true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] === true  )
 
     console.log( orig.datas.stuff == found.datas.stuff,  saved.datas.stuff == found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] == true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] == true )
+
+    let update = {...found}
+    delete update.datas.some.foos
+    update.name = 'jerry'
+    update.yup = 'yep'
+
+    let updated = await users.save(update)
+
+    let updateFound = await users.findOneById(updated.id)
+
+    console.log( orig.datas.stuff === found.datas.stuff, saved.datas.stuff === found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] === true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] === true  )
+    return "success"
 }
 
 run().then(console.log).catch(console.error)
