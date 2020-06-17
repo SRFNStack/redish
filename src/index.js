@@ -1,28 +1,66 @@
 const ObjectID = require( 'isomorphic-mongo-objectid' )
-const { flatten, inflate, dateSerializer, dateDeserializer} = require( 'jpflat' )
-
+const { flatten, inflate, dateSerializer, dateDeserializer } = require( 'jpflat' )
+const serializers = [ dateSerializer ]
+const deserializers = [ dateDeserializer ]
+const { promisify } = require( 'util' )
+let cmd = null
 let client = null
-let mode = "redis"
+let mode = 'redis'
 let commands = {
-    "redis":{
-        GETOBJ: "HGETALL",
-        SETOBJ: "HMSET"
+    'redis': {
+        GETOBJ: 'HGETALL',
+        SETOBJ: 'HMSET',
+        DELFIELDS: 'HDEL'
     },
-    "ssdb":{
-        GETOBJ: "multi_hget",
-        SETOBJ: "multi_hset"
+    'ssdb': {
+        GETOBJ: 'multi_hget',
+        SETOBJ: 'multi_hset',
+        DELFIELDS: 'multi_hdel'
     }
 }
 
-let customStringSerializers = []
-
 const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
 
-// const primitiveToPrefixedString =
-const serializers = [dateSerializer]
-const deserializers = [dateDeserializer]
-const { promisify } = require('util')
-let cmd = null
+const prefixLength = 36
+
+const toPrefix = ( pre ) => {
+    if( pre.length === prefixLength ) return pre.length
+    if( pre.length < prefixLength ) return pre.padEnd( prefixLength, ' ' )
+    return pre.substr( 0, prefixLength )
+}
+const prefix = ( pre, str ) => `${toPrefix( prefixLength )}${str}`
+const getPrefix = ( value ) => value.substr( 0, prefixLength )
+const prefixes = {
+    emptyObject: toPrefix( 'emptyObject' ),
+    emptyArray: toPrefix( 'emptyArray' ),
+    null: toPrefix( 'null' ),
+    undefined: toPrefix( 'undefined' ),
+    boolean: toPrefix( 'boolean' ),
+    string: toPrefix( 'string' ),
+    BigInt: toPrefix( 'BigInt' ),
+    Symbol: toPrefix( 'Symbol' ),
+    function: toPrefix( 'function' ),
+    number: toPrefix( 'number' )
+}
+
+const prefixSerializers = {
+    emptyObject: {},
+    emptyArray: {},
+    null: {},
+    undefined: {},
+    boolean: {},
+    string: {},
+    BigInt: {},
+    Symbol: {},
+    function: {},
+    number: {
+        canSerialize: ( o ) => typeof o === 'number',
+        serialize: ( n ) => prefixes.number + n.toString(),
+        canDeserialize: ( value ) => getPrefix( value ) === prefixes.number,
+        deserialize: ( n ) => prefix( 'number', n.toString() )
+    }
+}
+
 
 module.exports = {
 
@@ -36,7 +74,7 @@ module.exports = {
      */
     setClient( clientToSet ) {
         client = clientToSet
-        cmd = promisify(client.send_command).bind(client)
+        cmd = promisify( client.send_command ).bind( client )
     },
     /**
      * Set the client mode to either redis or ssdb.
@@ -44,9 +82,9 @@ module.exports = {
      * Default mode is redis
      * @param newMode either "redis" or "ssdb"
      */
-    setMode(newMode){
-        if(["redis","ssdb"].indexOf(newMode) < 0)
-            throw new Error("Invalid mode: "+newMode)
+    setMode( newMode ) {
+        if( [ 'redis', 'ssdb' ].indexOf( newMode ) < 0 )
+            throw new Error( 'Invalid mode: ' + newMode )
         mode = newMode
     },
     /**
@@ -57,8 +95,8 @@ module.exports = {
      *
      *
      */
-    addCustomStringSerializer(serializer) {
-        serializers.push(serializer)
+    addCustomStringSerializer( serializer ) {
+        serializers.push( serializer )
     },
     /**
      * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
@@ -68,8 +106,8 @@ module.exports = {
      *
      *
      */
-    addCustomStringDeserializer(deserializer) {
-        deserializer.push(deserializer)
+    addCustomStringDeserializer( deserializer ) {
+        deserializer.push( deserializer )
     },
     /**
      * A collection is a logical grouping of objects of similarish type.
@@ -112,9 +150,14 @@ module.exports = {
                 if( !obj.id ) {
                     obj.id = ObjectID().toString()
                 }
-                const bigFlatty = Object.entries( await flatten( obj ) ).flat()
+                let flatObj = await flatten( obj )
 
-                return await cmd(commands[mode].SETOBJ, [obj.id, ...bigFlatty]).then(()=>obj)
+                //This hkeys lookup is necessary to ensure that any keys that were deleted get reflected in the database
+                //otherwise the deleted keys will get reloaded next time the object loads
+                const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) ).filter( ( obj, key ) => !flatObj.hasOwnProperty( key ) )
+                await cmd(commands[mode].DELFIELDS, deletedKeys)
+                await cmd( commands[ mode ].SETOBJ, [ obj.id, ...Object.entries( flatObj ).flat() ] )
+                return obj
             },
             /**
              * Find one object in the collection by it's key
@@ -123,8 +166,8 @@ module.exports = {
              * @param id
              */
             async findOneById( id ) {
-                if(!id) throw new Error("You must provide a key to find")
-                return await cmd(commands[mode].GETOBJ, [id]).then((res)=>inflate(res))
+                if( !id ) throw new Error( 'You must provide a key to find' )
+                return await cmd( commands[ mode ].GETOBJ, [ id ] ).then( ( res ) => inflate( res ) )
             },
             /**
              * Find all of the objects stored in this collection, one page at a time
