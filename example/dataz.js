@@ -1,11 +1,10 @@
 const redish = require( '../src/index.js' )
 
 const redis = require("redis");
-const client = redis.createClient(8888);
-client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
+const client = redis.createClient(7369);
+// client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
 
 redish.setClient(client)
-redish.setMode('ssdb')
 const users = redish.collection( 'users' )
 
 run = async ()=> {
@@ -38,7 +37,7 @@ run = async ()=> {
 
     let updateFound = await users.findOneById(updated.id)
 
-    console.log( orig.datas.stuff === found.datas.stuff, saved.datas.stuff === found.datas.stuff, orig.datas.rayray[ 0 ].nested.rayray[ 0 ] === true, saved.datas.rayray[ 0 ].nested.rayray[ 0 ] === true  )
+    console.log( updateFound.name === 'jerry', updateFound.datas.some == update.datas.some,updateFound.datas.some === undefined, updateFound.yup ==='yep')
     return "success"
 }
 

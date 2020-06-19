@@ -11,11 +11,6 @@ let commands = {
         GETOBJ: 'HGETALL',
         SETOBJ: 'HMSET',
         DELFIELDS: 'HDEL'
-    },
-    'ssdb': {
-        GETOBJ: 'hgetall',
-        SETOBJ: 'multi_hset',
-        DELFIELDS: 'multi_hdel'
     }
 }
 
@@ -75,17 +70,6 @@ module.exports = {
     setClient( clientToSet ) {
         client = clientToSet
         cmd = promisify( client.send_command ).bind( client )
-    },
-    /**
-     * Set the client mode to either redis or ssdb.
-     *
-     * Default mode is redis
-     * @param newMode either "redis" or "ssdb"
-     */
-    setMode( newMode ) {
-        if( [ 'redis', 'ssdb' ].indexOf( newMode ) < 0 )
-            throw new Error( 'Invalid mode: ' + newMode )
-        mode = newMode
     },
     /**
      * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
@@ -157,8 +141,8 @@ module.exports = {
                 const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) )
                     .filter( ( key ) => ! flatObj.hasOwnProperty( key ) )
                 if(deletedKeys && deletedKeys.length > 0)
-                    await cmd(commands[mode].DELFIELDS, [obj.id, ...deletedKeys])
-                await cmd( commands[ mode ].SETOBJ, [ obj.id, ...Object.entries( flatObj ).flat() ] )
+                    await cmd('HDEL', [obj.id, ...deletedKeys])
+                await cmd( 'HMSET', [ obj.id, ...Object.entries( flatObj ).flat() ] )
                 return obj
             },
             /**
@@ -169,25 +153,25 @@ module.exports = {
              */
             async findOneById( id ) {
                 if( !id ) throw new Error( 'You must provide a key to find' )
-                return await cmd( commands[ mode ].GETOBJ, [ id ] ).then( ( res ) => inflate( res ) )
+                return await cmd( 'HGETALL', [ id ] ).then( ( res ) => inflate( res ) )
             },
-            /**
-             * Find all of the objects stored in this collection, one page at a time
-             * @param page The page number to get
-             * @param size The number of objects to retrieve at a time
-             */
-            async findAll( page = 0, size = 10 ) {
-
-            },
-            /**
-             * Scan the collection for a object that has the specified value for the field
-             * TODO: support multiple fields and complex boolean statements (foo == 5 and (bar == yep or baz == nope))
-             * @param field
-             * @param value
-             */
-            async findOneBy( field, value ) {
-                //for each document in each page of the collection, scan the documents and search for matches
-            }
+            // /**
+            //  * Find all of the objects stored in this collection, one page at a time
+            //  * @param page The page number to get
+            //  * @param size The number of objects to retrieve at a time
+            //  */
+            // async findAll( page = 0, size = 10 ) {
+            //
+            // },
+            // /**
+            //  * Scan the collection for a object that has the specified value for the field
+            //  * TODO: support multiple fields and complex boolean statements (foo == 5 and (bar == yep or baz == nope))
+            //  * @param field
+            //  * @param value
+            //  */
+            // async findOneBy( field, value ) {
+            //     //for each document in each page of the collection, scan the documents and search for matches
+            // }
         }
     }
 }
