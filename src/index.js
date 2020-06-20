@@ -1,61 +1,98 @@
 const ObjectID = require( 'isomorphic-mongo-objectid' )
-const { flatten, inflate, dateSerializer, dateDeserializer } = require( 'jpflat' )
-const serializers = [ dateSerializer ]
-const deserializers = [ dateDeserializer ]
+const { flatten, inflate } = require( 'jpflat' )
 const { promisify } = require( 'util' )
 let cmd = null
 let client = null
-let mode = 'redis'
-let commands = {
-    'redis': {
-        GETOBJ: 'HGETALL',
-        SETOBJ: 'HMSET',
-        DELFIELDS: 'HDEL'
-    }
-}
 
 const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
 
-const prefixLength = 36
-
-const toPrefix = ( pre ) => {
-    if( pre.length === prefixLength ) return pre.length
-    if( pre.length < prefixLength ) return pre.padEnd( prefixLength, ' ' )
-    return pre.substr( 0, prefixLength )
-}
-const prefix = ( pre, str ) => `${toPrefix( prefixLength )}${str}`
-const getPrefix = ( value ) => value.substr( 0, prefixLength )
+const getPrefix = value => value.substr( 0, 1 )
+const removePrefix = value => value.substr( 1 )
 const prefixes = {
-    emptyObject: toPrefix( 'emptyObject' ),
-    emptyArray: toPrefix( 'emptyArray' ),
-    null: toPrefix( 'null' ),
-    undefined: toPrefix( 'undefined' ),
-    boolean: toPrefix( 'boolean' ),
-    string: toPrefix( 'string' ),
-    BigInt: toPrefix( 'BigInt' ),
-    Symbol: toPrefix( 'Symbol' ),
-    function: toPrefix( 'function' ),
-    number: toPrefix( 'number' )
+    emptyObject: '0',
+    emptyArray: '1',
+    null: '2',
+    undefined: '3',
+    boolean: '4',
+    string: '5',
+    BigInt: '6',
+    Symbol: '7',
+    function: '8',
+    number: '9',
+    Date: 'a'
 }
 
-const prefixSerializers = {
-    emptyObject: {},
-    emptyArray: {},
-    null: {},
-    undefined: {},
-    boolean: {},
-    string: {},
-    BigInt: {},
-    Symbol: {},
-    function: {},
-    number: {
-        canSerialize: ( o ) => typeof o === 'number',
-        serialize: ( n ) => prefixes.number + n.toString(),
-        canDeserialize: ( value ) => getPrefix( value ) === prefixes.number,
-        deserialize: ( n ) => prefix( 'number', n.toString() )
+const stringizers = {
+    [ prefixes.emptyObject ]: {
+        to: () => '',
+        from: () => ({})
+    },
+    [ prefixes.emptyArray ]: {
+        to: () => '',
+        from: () => []
+    },
+    [ prefixes.null ]: {
+        to: () => '',
+        from: () => null
+    },
+    [ prefixes.undefined ]: {
+        to: () => '',
+        from: () => undefined
+    },
+    [ prefixes.boolean ]: {
+        to: o => String( o ),
+        from: s => Boolean( s )
+    },
+    [ prefixes.string ]: {
+        to: o => String( o ),
+        from: s => s
+    },
+    [ prefixes.BigInt ]: {
+        to: o => String( o ),
+        from: s => BigInt( s )
+    },
+    [ prefixes.Symbol ]: {
+        to: o => String( o ),
+        from: s => Symbol.for( s.substring( 'Symbol('.length, s.length - 1 ) )
+    },
+    [ prefixes.function ]: {
+        to: o => String( o ),
+        from: s => eval( s )
+    },
+    [ prefixes.number ]: {
+        to: o => String( o ),
+        from: s => Number( s )
+    },
+    [ prefixes.Date ]: {
+        to: o => o.toISOString(),
+        from: s => new Date(s)
     }
 }
 
+const choosePrefix = o => {
+    if(o === undefined) return prefixes.undefined
+    if(o === null) return prefixes.null
+    if(Array.isArray(o) && o.length === 0) return prefixes.emptyArray
+    if(typeof o === 'object' && Object.keys(o).length === 0) return prefixes.emptyObject
+    return prefixes[ typeof o ] || prefixes[ o && o.constructor.name ]
+}
+
+/**
+ * This jpflat serializer/deserializer supports basic types in javascript and treats everything else as a plain string
+ * @type {{serialize: (function(*=): string), canDeserialize: (function(*=): *), canSerialize: (function(*=): *), deserialize: (function(*=): *)}}
+ */
+const toStringizer = {
+    canSerialize: o => !!choosePrefix(o),
+    canDeserialize: () => true,
+    serialize: o => {
+        let prefix = choosePrefix(o)||prefixes.string
+        return `${prefix}${stringizers[prefix].to(o)}`
+    },
+    deserialize: value => stringizers[ getPrefix( value ) ].from( removePrefix( value ) )
+}
+
+const serializers = [ toStringizer ]
+const deserializers = [ toStringizer ]
 
 module.exports = {
 
@@ -72,26 +109,37 @@ module.exports = {
         cmd = promisify( client.send_command ).bind( client )
     },
     /**
-     * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
+     * Redis stores all data as a binary safe string. This library handles primitive values and Date objects by default.
      *
      * You can add more custom serializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
      * serializers compatible with that.
      *
-     *
      */
     addCustomStringSerializer( serializer ) {
-        serializers.push( serializer )
+        serializers.unshift( serializer )
     },
     /**
-     * Redis stores all data as a "binary safe" string. This library handles primitive values and Date objects by default.
+     * Redis stores all data as a binary safe string. This library handles primitive values and Date objects by default.
      *
      * You can add more custom deserializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
      * deserializers compatible with that.
      *
-     *
      */
     addCustomStringDeserializer( deserializer ) {
-        deserializer.push( deserializer )
+        deserializer.unshift( deserializer )
+    },
+    /**
+     * Returns the actual array of serializers, use this to remove or modify serializers
+     * @returns {*[]}
+     */
+    getSerializers() {
+        return serializers
+    },
+    /**
+     * Returns the actual array of deserializers, use this to remove or modify deserializers
+     */
+    getDeserializers() {
+        return deserializers
     },
     /**
      * A collection is a logical grouping of objects of similarish type.
@@ -113,7 +161,7 @@ module.exports = {
         assertClientSet()
         return {
             /**
-             * Save an object to redis and add it to the collection
+             * Save an object and add it to the collection
              *
              * When saving an object these steps are followed
              * A key is generated for objects if no truthy "id" field is provided and added to the object as the field "id"
@@ -134,15 +182,17 @@ module.exports = {
                 if( !obj.id ) {
                     obj.id = ObjectID().toString()
                 }
-                let flatObj = await flatten( obj )
+                let flatObj = await flatten( obj, serializers )
 
                 //This hkeys lookup is necessary to ensure that any keys that were deleted get reflected in the database
                 //otherwise the deleted keys will get reloaded next time the object loads
                 const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) )
-                    .filter( ( key ) => ! flatObj.hasOwnProperty( key ) )
-                if(deletedKeys && deletedKeys.length > 0)
-                    await cmd('HDEL', [obj.id, ...deletedKeys])
+                    .filter( ( key ) => !flatObj.hasOwnProperty( key ) )
+                await cmd('MULTI')
+                if( deletedKeys && deletedKeys.length > 0 )
+                    await cmd( 'HDEL', [ obj.id, ...deletedKeys ] )
                 await cmd( 'HMSET', [ obj.id, ...Object.entries( flatObj ).flat() ] )
+                await cmd('EXEC')
                 return obj
             },
             /**
@@ -152,9 +202,9 @@ module.exports = {
              * @param id
              */
             async findOneById( id ) {
-                if( !id ) throw new Error( 'You must provide a key to find' )
-                return await cmd( 'HGETALL', [ id ] ).then( ( res ) => inflate( res ) )
-            },
+                if( !id ) throw new Error( 'You must provide an id' )
+                return await cmd( 'HGETALL', [ id ] ).then( ( res ) => res ? inflate( res, deserializers ) : res )
+            }
             // /**
             //  * Find all of the objects stored in this collection, one page at a time
             //  * @param page The page number to get

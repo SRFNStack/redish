@@ -37,7 +37,7 @@ run = async ()=> {
 
     let updateFound = await users.findOneById(updated.id)
 
-    console.log( updateFound.name === 'jerry', updateFound.datas.some == update.datas.some,updateFound.datas.some === undefined, updateFound.yup ==='yep')
+    console.log( updateFound.name === 'jerry', Object.keys(updateFound.datas.some).length === Object.keys(update.datas.some).length, updateFound.yup ==='yep')
     return "success"
 }
 
