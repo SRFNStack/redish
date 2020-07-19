@@ -28,10 +28,10 @@
   ],
   "dependencies": {
     "isomorphic-mongo-objectid": "^1.0.9",
-    "jpflat": "git@github.com:narcolepticsnowman/jpflat.git",
-    "redis": "3.0.2"
+    "jpflat": "git+ssh://git@github.com/narcolepticsnowman/jpflat.git"
   },
   "devDependencies": {
-    "jest": "^26.0.1"
+    "jest": "^26.0.1",
+    "redis": "3.0.2"
   }
 }

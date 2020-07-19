@@ -1,146 +1,10 @@
 const ObjectID = require( 'isomorphic-mongo-objectid' )
 const { flatten, inflate } = require( 'jpflat' )
 const { promisify } = require( 'util' )
-let cmd = null
-let client = null
-
-const assertClientSet = () => {if( !client ) throw new Error( 'Client must be set before using a collection' )}
-
-const getPrefix = value => value.substr( 0, 1 )
-const removePrefix = value => value.substr( 1 )
-const prefixes = {
-    emptyObject: '0',
-    emptyArray: '1',
-    null: '2',
-    undefined: '3',
-    boolean: '4',
-    string: '5',
-    BigInt: '6',
-    Symbol: '7',
-    function: '8',
-    number: '9',
-    Date: 'a'
-}
-
-const stringizers = {
-    [ prefixes.emptyObject ]: {
-        to: () => '',
-        from: () => ({})
-    },
-    [ prefixes.emptyArray ]: {
-        to: () => '',
-        from: () => []
-    },
-    [ prefixes.null ]: {
-        to: () => '',
-        from: () => null
-    },
-    [ prefixes.undefined ]: {
-        to: () => '',
-        from: () => undefined
-    },
-    [ prefixes.boolean ]: {
-        to: o => String( o ),
-        from: s => Boolean( s )
-    },
-    [ prefixes.string ]: {
-        to: o => String( o ),
-        from: s => s
-    },
-    [ prefixes.BigInt ]: {
-        to: o => String( o ),
-        from: s => BigInt( s )
-    },
-    [ prefixes.Symbol ]: {
-        to: o => String( o ),
-        from: s => Symbol.for( s.substring( 'Symbol('.length, s.length - 1 ) )
-    },
-    [ prefixes.function ]: {
-        to: o => String( o ),
-        from: s => eval( s )
-    },
-    [ prefixes.number ]: {
-        to: o => String( o ),
-        from: s => Number( s )
-    },
-    [ prefixes.Date ]: {
-        to: o => o.toISOString(),
-        from: s => new Date(s)
-    }
-}
-
-const choosePrefix = o => {
-    if(o === undefined) return prefixes.undefined
-    if(o === null) return prefixes.null
-    if(Array.isArray(o) && o.length === 0) return prefixes.emptyArray
-    if(typeof o === 'object' && Object.keys(o).length === 0) return prefixes.emptyObject
-    return prefixes[ typeof o ] || prefixes[ o && o.constructor.name ]
-}
-
-/**
- * This jpflat serializer/deserializer supports basic types in javascript and treats everything else as a plain string
- * @type {{serialize: (function(*=): string), canDeserialize: (function(*=): *), canSerialize: (function(*=): *), deserialize: (function(*=): *)}}
- */
-const toStringizer = {
-    canSerialize: o => !!choosePrefix(o),
-    canDeserialize: () => true,
-    serialize: o => {
-        let prefix = choosePrefix(o)||prefixes.string
-        return `${prefix}${stringizers[prefix].to(o)}`
-    },
-    deserialize: value => stringizers[ getPrefix( value ) ].from( removePrefix( value ) )
-}
-
-const serializers = [ toStringizer ]
-const deserializers = [ toStringizer ]
-
+const stringizer = require( './stringizer.js' )
+const { removeTypeKey } = require( './stringizer.js' )
+const { jsonPathPathReducer } = require( 'jpflat' )
 module.exports = {
-
-    /**
-     * Set the redis client. Created as follows:
-     *
-     * const redis = require("redis");
-     * const client = redis.createClient();
-     *
-     * This is left to the user to allow auth configuration and the like
-     */
-    setClient( clientToSet ) {
-        client = clientToSet
-        cmd = promisify( client.send_command ).bind( client )
-    },
-    /**
-     * Redis stores all data as a binary safe string. This library handles primitive values and Date objects by default.
-     *
-     * You can add more custom serializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
-     * serializers compatible with that.
-     *
-     */
-    addCustomStringSerializer( serializer ) {
-        serializers.unshift( serializer )
-    },
-    /**
-     * Redis stores all data as a binary safe string. This library handles primitive values and Date objects by default.
-     *
-     * You can add more custom deserializers here. This is based on the jpflat(https://github.com/narcolepticsnowman/jpflat) library, so you must pass
-     * deserializers compatible with that.
-     *
-     */
-    addCustomStringDeserializer( deserializer ) {
-        deserializer.unshift( deserializer )
-    },
-    /**
-     * Returns the actual array of serializers, use this to remove or modify serializers
-     * @returns {*[]}
-     */
-    getSerializers() {
-        return serializers
-    },
-    /**
-     * Returns the actual array of deserializers, use this to remove or modify deserializers
-     */
-    getDeserializers() {
-        return deserializers
-    },
     /**
      * A collection is a logical grouping of objects of similarish type.
      *
@@ -154,56 +18,71 @@ module.exports = {
      * TODO: Add support for "sort indexes" for speedy paging using zsets
      * TODO: Add support for unique constraints using sets
      *
-     * @param key The key for this collection. A good key might be something like `${customerId}:widgets`.
-     * @returns {{save(Object), findOneByKey(*), findOneBy(*,*), findAll(number=, number=)}}
+     * @param client The redis client to use, client must have a send_command function like this implementation: https://www.npmjs.com/package/redis.
+     * @param collectionKey The key for this collection. A good key might be something like `${customerId}:widgets`.
+     * @param serializers Specify custom jpflat serializers to use for serialization. The default is to use require('./stringizer.js')
+     * @param deserializers Specify custom jpflat deserializers to use for deserialization. The default is to use require('./stringizer.js')
+     * @param pathReducer The path reducer to use to create the path. Default is json path reduce from jpflat
+     * @param pathExpander The path expander to use to deserialize. Default is the stringizer pathExpander, which uses jsonpath and appends type information to the path
+     * @returns {{save(Object), findOneById(*)}}
      */
-    collection( key ) {
-        assertClientSet()
+    collection( client, collectionKey, serializers = [ stringizer ], deserializers = [ stringizer ], pathReducer = stringizer.pathReducer, pathExpander = stringizer.pathExpander) {
+        if( !client ) throw new Error( 'Client must be set before using a collection' )
+        if( typeof client.send_command !== 'function' ) throw new Error( 'client must support send_command callback style function' )
+        let cmd = promisify( client.send_command ).bind( client )
+
         return {
             /**
              * Save an object and add it to the collection
              *
-             * When saving an object these steps are followed
-             * A key is generated for objects if no truthy "id" field is provided and added to the object as the field "id"
-             * The object is flattened to a set of path/value pairs
-             * The key is added to the collection sorted set
-             *
-             * Storing the keys this way instead of as a json string allows scanning and other functionality in redis that a simple string would not
-             *
-             * Currently empty arrays and empty sets will not be serialized because there is no way to represent them in redis, this means deserialized values will not be
-             * truly equal, though in practice this is usable.
-             *
-             * A Transactional MULTI command is used to ensure the key add to the sorted set and the update to all of the keys succeed as a transaction.
              * @param obj The saved object
              */
             async save( obj ) {
                 if( !obj || typeof obj !== 'object' )
-                    throw new Error( 'You can only save objects with redish' )
-                if( !obj.id ) {
+                    throw new Error( 'You can only save truthy non-array objects with redish' )
+                if( Array.isArray( obj ) && obj.length === 0 )
+                    throw new Error( 'Empty arrays cannot be saved' )
+                let isNew = !obj.id
+                if( isNew ) {
                     obj.id = ObjectID().toString()
                 }
-                let flatObj = await flatten( obj, serializers )
-
-                //This hkeys lookup is necessary to ensure that any keys that were deleted get reflected in the database
-                //otherwise the deleted keys will get reloaded next time the object loads
-                const deletedKeys = ( await cmd( 'hkeys', [ obj.id ] ) )
-                    .filter( ( key ) => !flatObj.hasOwnProperty( key ) )
-                await cmd('MULTI')
-                if( deletedKeys && deletedKeys.length > 0 )
-                    await cmd( 'HDEL', [ obj.id, ...deletedKeys ] )
+                let flatObj = await flatten( obj, serializers, pathReducer )
+                //begin transaction to ensure the collection zset stays consistent
+                await cmd( 'WATCH', [ obj.id ] )
+                let currentKeys = !isNew && await cmd( 'HKEYS', [ obj.id ] ) || []
+                await cmd( 'MULTI' )
                 await cmd( 'HMSET', [ obj.id, ...Object.entries( flatObj ).flat() ] )
-                await cmd('EXEC')
+                if( !isNew ) {
+                    //Get the current set of object keys and delete any keys that do not exist on the current object
+                    const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
+                    if( deletedKeys && deletedKeys.length > 0 )
+                        await cmd( 'HDEL', [ obj.id, ...deletedKeys ] )
+                } else {
+                    await cmd( 'ZADD', [ collectionKey, obj.id, 0 ] )
+                }
+                //TODO add configurable retry
+                if( await cmd( 'EXEC' ) === null )
+                    throw new Error( 'Failed to update ' + obj.id + '. Object was modified during transaction.' )
+
                 return obj
             },
             /**
-             * Find one object in the collection by it's key
+             * Find one object in the collection by it's id
              *
-             * This performs a HGETALL then inflates the object from it's path value pairs
              * @param id
              */
             async findOneById( id ) {
                 if( !id ) throw new Error( 'You must provide an id' )
-                return await cmd( 'HGETALL', [ id ] ).then( ( res ) => res ? inflate( res, deserializers ) : res )
+                let res = await cmd( 'HGETALL', [ id ] )
+                if( res ) {
+                    let inflated = await inflate( res, deserializers, pathExpander )
+                    if( Array.isArray( inflated ) ) {
+                        inflated.id = id
+                    }
+                    return inflated
+                }
+                return res
+
             }
             // /**
             //  * Find all of the objects stored in this collection, one page at a time

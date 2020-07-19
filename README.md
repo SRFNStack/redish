@@ -3,7 +3,7 @@
 
 
 #### What is redish 
-redish is a NORM (Nice Object to Redis protocol Mapper) that will save your documents to a storage backend that supports
+redish is a NO->RM (Nice Object to Redis protocol Mapper) that will save your documents to a storage backend that supports
 the redis protocol with transactions ( MULTI, EXEC, etc ). Redis or ( Titan + TiKV ) are excellent options.
 
 It's primary goal is to provide a typical ORM like experience that uses the redis protocol instead of sql. 
