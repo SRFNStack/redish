@@ -47,9 +47,9 @@ const allTypes = {
 
 const cmdArgs = cmd => mockClient.send_command.mock.calls.find( args => args[ 0 ] === cmd )
 
-afterEach(() => {
-    jest.clearAllMocks();
-});
+afterEach( () => {
+    jest.clearAllMocks()
+} )
 
 describe( 'save', () => {
 
@@ -61,23 +61,23 @@ describe( 'save', () => {
 
     it( 'does not overwrite ids if set', async() => {
         await testCollection.save( { id: 'unique' } )
-        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ 'unique', '$.id'+':'+stringizer.typeKeys.string,'unique' ] )
+        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ 'unique', '$.id' + ':' + stringizer.typeKeys.string, 'unique' ] )
     } )
 
     it( 'generates an object id hex string if id is not set', async() => {
         let result = await testCollection.save( {} )
         expect( ObjectID( result.id ).toString() ).toBe( result.id )
-        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ result.id, '$.id'+':'+stringizer.typeKeys.string, result.id ] )
+        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ result.id, '$.id' + ':' + stringizer.typeKeys.string, result.id ] )
     } )
 
     it( 'sends hdel command when keys are deleted from an existing object', async() => {
-        cmdRes.HKEYS.push( [ '$.id'+':'+stringizer.typeKeys.string, '$.foo' ] )
+        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
         await testCollection.save( { id: 'id' } )
         expect( cmdArgs( 'HDEL' )[ 1 ] ).toStrictEqual( [ 'id', '$.foo' ] )
     } )
 
     it( 'watches the keys if it needs to delete fields to ensure consistent updates', async() => {
-        cmdRes.HKEYS.push( [ '$.id'+':'+stringizer.typeKeys.string, '$.foo' ] )
+        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
         await testCollection.save( { id: 'id' } )
         expect( cmdArgs( 'WATCH' )[ 1 ] ).toStrictEqual( [ 'id' ] )
     } )
@@ -89,7 +89,7 @@ describe( 'save', () => {
     } )
 
     it( 'does not send hdel command if no keys were deleted', async() => {
-        cmdRes.HKEYS.push( [ '$.id'+':'+stringizer.typeKeys.string, '$.foo'+':'+stringizer.typeKeys.string ] )
+        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' + ':' + stringizer.typeKeys.string ] )
         await testCollection.save( { id: 'id', foo: 'foo' } )
         expect( cmdArgs( 'HDEL' ) ).toStrictEqual( undefined )
     } )
@@ -105,143 +105,169 @@ describe( 'save', () => {
         expect( cmdArgs( 'HMSET' )[ 1 ] )
             .toStrictEqual( [
                                 result.id,
-                                '$[0]'+':'+stringizer.typeKeys.number, '5',
-                                '$[1]'+':'+stringizer.typeKeys.string, 's',
-                                '$.id'+':'+stringizer.typeKeys.string, result.id,
+                                '$[0]' + ':' + stringizer.typeKeys.number, '5',
+                                '$[1]' + ':' + stringizer.typeKeys.string, 's',
+                                '$.id' + ':' + stringizer.typeKeys.string, result.id
                             ] )
     } )
 
     it( 'serializes types correctly', async() => {
 
-        let result = await testCollection.save( {...allTypes} )
+        let result = await testCollection.save( { ...allTypes } )
         expect( cmdArgs( 'HMSET' )[ 1 ] )
             .toStrictEqual( [
                                 result.id,
-                                '$.emptyObject'+':'+stringizer.typeKeys.emptyObject, '{}',
-                                '$.emptyArray'+':'+stringizer.typeKeys.emptyArray, '[]',
-                                '$.emptyString'+':'+stringizer.typeKeys.emptyString, '\'\'',
-                                '$.null'+':'+stringizer.typeKeys.null, 'null',
-                                '$.undefined'+':'+stringizer.typeKeys.undefined, 'undefined',
-                                '$.boolean'+':'+stringizer.typeKeys.boolean, 'true',
-                                '$.string'+':'+stringizer.typeKeys.string, 'string',
-                                '$.BigInt'+':'+stringizer.typeKeys.BigInt, '123456789123456789',
-                                '$.Symbol'+':'+stringizer.typeKeys.Symbol, 'Symbol(symbol)',
-                                '$.function'+':'+stringizer.typeKeys.function, 'arg => console.log(arg)',
-                                '$.number'+':'+stringizer.typeKeys.number, '100',
-                                '$.Date'+':'+stringizer.typeKeys.Date, allTypes.Date.toISOString(),
-                                '$.id'+':'+stringizer.typeKeys.string, result.id
+                                '$.emptyObject' + ':' + stringizer.typeKeys.emptyObject, '{}',
+                                '$.emptyArray' + ':' + stringizer.typeKeys.emptyArray, '[]',
+                                '$.emptyString' + ':' + stringizer.typeKeys.emptyString, '\'\'',
+                                '$.null' + ':' + stringizer.typeKeys.null, 'null',
+                                '$.undefined' + ':' + stringizer.typeKeys.undefined, 'undefined',
+                                '$.boolean' + ':' + stringizer.typeKeys.boolean, 'true',
+                                '$.string' + ':' + stringizer.typeKeys.string, 'string',
+                                '$.BigInt' + ':' + stringizer.typeKeys.BigInt, '123456789123456789',
+                                '$.Symbol' + ':' + stringizer.typeKeys.Symbol, 'Symbol(symbol)',
+                                '$.function' + ':' + stringizer.typeKeys.function, 'arg => console.log(arg)',
+                                '$.number' + ':' + stringizer.typeKeys.number, '100',
+                                '$.Date' + ':' + stringizer.typeKeys.Date, allTypes.Date.toISOString(),
+                                '$.id' + ':' + stringizer.typeKeys.string, result.id
                             ] )
 
     } )
 
     it( 'serializes nested arrays correctly', async() => {
-        let result = await testCollection.save( [[[[0,{foo:[[[1]]]}]]]] )
+        let result = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
         expect( cmdArgs( 'HMSET' )[ 1 ] )
             .toStrictEqual( [
                                 result.id,
-                                '$[0][0][0][0]'+':'+stringizer.typeKeys.number, '0',
-                                '$[0][0][0][1].foo[0][0][0]'+':'+stringizer.typeKeys.number, '1',
-                                '$.id'+':'+stringizer.typeKeys.string, result.id
+                                '$[0][0][0][0]' + ':' + stringizer.typeKeys.number, '0',
+                                '$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number, '1',
+                                '$.id' + ':' + stringizer.typeKeys.string, result.id
                             ] )
 
     } )
 
     it( 'serializes nested objects correctly', async() => {
 
-        let result = await testCollection.save( {a:{a:{a:{a:0,b:{b:[0,{c:'d'}]}}}}} )
+        let result = await testCollection.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } } )
         expect( cmdArgs( 'HMSET' )[ 1 ] )
             .toStrictEqual( [
                                 result.id,
-                                '$.a.a.a.a'+':'+stringizer.typeKeys.number, '0',
-                                '$.a.a.a.b.b[0]'+':'+stringizer.typeKeys.number, '0',
-                                '$.a.a.a.b.b[1].c'+':'+stringizer.typeKeys.string, 'd',
-                                '$.id'+':'+stringizer.typeKeys.string, result.id
+                                '$.a.a.a.a' + ':' + stringizer.typeKeys.number, '0',
+                                '$.a.a.a.b.b[0]' + ':' + stringizer.typeKeys.number, '0',
+                                '$.a.a.a.b.b[1].c' + ':' + stringizer.typeKeys.string, 'd',
+                                '$.id' + ':' + stringizer.typeKeys.string, result.id
                             ] )
     } )
 
 
     it( 'performs everything in a single transaction', async() => {
-        let result = await testCollection.save({})
+        let result = await testCollection.save( {} )
 
         let calls = mockClient.send_command.mock.calls
-        expect(calls.filter(a=>a[0] === 'WATCH').length ).toStrictEqual(1)
-        expect(calls.filter(a=>a[0] === 'MULTI').length ).toStrictEqual(1)
-        expect(calls.filter(a=>a[0] === 'EXEC').length ).toStrictEqual(1)
+        expect( calls.filter( a => a[ 0 ] === 'WATCH' ).length ).toStrictEqual( 1 )
+        expect( calls.filter( a => a[ 0 ] === 'MULTI' ).length ).toStrictEqual( 1 )
+        expect( calls.filter( a => a[ 0 ] === 'EXEC' ).length ).toStrictEqual( 1 )
 
         let watchI, multiI, execI
 
-        calls.forEach( ( args, i)=>{
-            if(args[0]==='WATCH') watchI = i
-            if(args[0]==='MULTI') multiI = i
-            if(args[0]==='EXEC') execI = i
-        })
+        calls.forEach( ( args, i ) => {
+            if( args[ 0 ] === 'WATCH' ) watchI = i
+            if( args[ 0 ] === 'MULTI' ) multiI = i
+            if( args[ 0 ] === 'EXEC' ) execI = i
+        } )
 
-        expect(watchI < multiI < execI).toStrictEqual(true)
+        expect( watchI < multiI < execI ).toStrictEqual( true )
     } )
 
     it( 'throws an error if the transaction was unsuccessful', async() => {
         cmdRes.EXEC.push( null )
-        expect(testCollection.save({})).rejects.toThrow()
+        expect( testCollection.save( {} ) ).rejects.toThrow()
     } )
 
 } )
 
 
-describe('findOneById', ()=>{
-    it('should require a truthy id is passed', async()=>{
+describe( 'findOneById', () => {
+    it( 'should require a truthy id is passed', async() => {
         for( let badValue of [ null, undefined, false, '', 0, NaN ] ) {
             await expect( testCollection.findOneById( badValue ) ).rejects.toThrow( 'You must provide an id' )
         }
-    })
+    } )
 
     it( 'deserializes types correctly', async() => {
         let id = ObjectID().toString()
         let origDate = allTypes.Date
         let foundHash = {
-            ['$.emptyObject' + ':' + stringizer.typeKeys.emptyObject] : '{}',
-            ['$.emptyArray' + ':' + stringizer.typeKeys.emptyArray]: '[]',
-            ['$.emptyString' + ':' + stringizer.typeKeys.emptyString]: '\'\'',
-            ['$.null' + ':' + stringizer.typeKeys.null]: 'null',
-            ['$.undefined' + ':' + stringizer.typeKeys.undefined]: 'undefined',
-            ['$.boolean' + ':' + stringizer.typeKeys.boolean]: 'true',
-            ['$.string' + ':' + stringizer.typeKeys.string]: 'string',
-            ['$.BigInt' + ':' + stringizer.typeKeys.BigInt]: '123456789123456789',
-            ['$.Symbol' + ':' + stringizer.typeKeys.Symbol]: 'Symbol(symbol)',
-            ['$.function' + ':' + stringizer.typeKeys.function]: 'arg => console.log(arg)',
-            ['$.number' + ':' + stringizer.typeKeys.number]: '100',
-            ['$.Date' + ':' + stringizer.typeKeys.Date]: origDate.toISOString(),
-            ['$.id' + ':' + stringizer.typeKeys.string]: id
+            [ '$.emptyObject' + ':' + stringizer.typeKeys.emptyObject ]: '{}',
+            [ '$.emptyArray' + ':' + stringizer.typeKeys.emptyArray ]: '[]',
+            [ '$.emptyString' + ':' + stringizer.typeKeys.emptyString ]: '\'\'',
+            [ '$.null' + ':' + stringizer.typeKeys.null ]: 'null',
+            [ '$.undefined' + ':' + stringizer.typeKeys.undefined ]: 'undefined',
+            [ '$.boolean' + ':' + stringizer.typeKeys.boolean ]: 'true',
+            [ '$.string' + ':' + stringizer.typeKeys.string ]: 'string',
+            [ '$.BigInt' + ':' + stringizer.typeKeys.BigInt ]: '123456789123456789',
+            [ '$.Symbol' + ':' + stringizer.typeKeys.Symbol ]: 'Symbol(symbol)',
+            [ '$.function' + ':' + stringizer.typeKeys.function ]: 'arg => console.log(arg)',
+            [ '$.number' + ':' + stringizer.typeKeys.number ]: '100',
+            [ '$.Date' + ':' + stringizer.typeKeys.Date ]: origDate.toISOString(),
+            [ '$.id' + ':' + stringizer.typeKeys.string ]: id
         }
 
         cmdRes.HGETALL.push( foundHash )
-        let result = await testCollection.findOneById(id)
+        let result = await testCollection.findOneById( id )
 
-        expect(result.emptyObject).toStrictEqual({})
-        expect(result.emptyArray).toStrictEqual([])
-        expect(result.emptyString).toStrictEqual('')
-        expect(result.null).toStrictEqual(null)
-        expect(result.undefined).toStrictEqual(undefined)
-        expect(result.boolean).toStrictEqual(true)
-        expect(result.string).toStrictEqual('string')
-        expect(result.BigInt).toStrictEqual(BigInt('123456789123456789'))
-        expect(result.Symbol).toStrictEqual(Symbol.for('symbol'))
-        expect(result.function.toString()).toStrictEqual('arg => console.log(arg)')
-        expect(result.number).toStrictEqual(100)
-        expect(result.Date).toStrictEqual(origDate)
-        expect(result.id).toStrictEqual(id)
+        expect( result.emptyObject ).toStrictEqual( {} )
+        expect( result.emptyArray ).toStrictEqual( [] )
+        expect( result.emptyString ).toStrictEqual( '' )
+        expect( result.null ).toStrictEqual( null )
+        expect( result.undefined ).toStrictEqual( undefined )
+        expect( result.boolean ).toStrictEqual( true )
+        expect( result.string ).toStrictEqual( 'string' )
+        expect( result.BigInt ).toStrictEqual( BigInt( '123456789123456789' ) )
+        expect( result.Symbol ).toStrictEqual( Symbol.for( 'symbol' ) )
+        expect( result.function.toString() ).toStrictEqual( 'arg => console.log(arg)' )
+        expect( result.number ).toStrictEqual( 100 )
+        expect( result.Date ).toStrictEqual( origDate )
+        expect( result.id ).toStrictEqual( id )
     } )
 
     it( 'deserializes nested arrays correctly', async() => {
+        let saved = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
+        cmdRes.HGETALL.push({
+                                ['$[0][0][0][0]' + ':' + stringizer.typeKeys.number]: '0',
+                                ['$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number]: '1',
+                                ['$.id' + ':' + stringizer.typeKeys.string]: saved.id
+                            })
 
+        let found = await testCollection.findOneById( saved.id )
+        expect( saved ).toStrictEqual( found )
     } )
 
 
     it( 'deserializes nested objects correctly', async() => {
+        let saved = await testCollection.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } } )
+        cmdRes.HGETALL.push( {
+                                 [ '$.a.a.a.a' + ':' + stringizer.typeKeys.number ]: '0',
+                                 [ '$.a.a.a.b.b[0]' + ':' + stringizer.typeKeys.number ]: '0',
+                                 [ '$.a.a.a.b.b[1].c' + ':' + stringizer.typeKeys.string ]: 'd',
+                                 [ '$.id' + ':' + stringizer.typeKeys.string ]: saved.id
+                             } )
+        let found = await testCollection.findOneById( saved.id )
+        expect( saved ).toStrictEqual( found )
+    } )
+
+    it( 'sets the id correctly on found arrays', async() => {
+        let saved = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
+        cmdRes.HGETALL.push({
+                                ['$[0][0][0][0]' + ':' + stringizer.typeKeys.number]: '0',
+                                ['$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number]: '1',
+                                ['$.id' + ':' + stringizer.typeKeys.string]: saved.id
+                            })
+
+        let found = await testCollection.findOneById( saved.id )
+        expect(saved.id).toBeTruthy()
+        expect( saved.id ).toStrictEqual( found.id )
 
     } )
 
-    it('sets the id correctly on found arrays', async() =>{
-
-    })
-
-})
+} )

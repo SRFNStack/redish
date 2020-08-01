@@ -5,6 +5,7 @@ const client = redis.createClient( 7369 )
 // client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
 const users = redish.collection( client, 'users' )
 
+afterAll(()=>client.quit())
 describe( 'redish', () => {
 
               it( 'should save and retrieve complex objects containing all primitive objects correctly', async() => {
@@ -93,4 +94,5 @@ describe( 'redish', () => {
               } )
 
           }
+
 )
