@@ -2,8 +2,6 @@ const ObjectID = require( 'isomorphic-mongo-objectid' )
 const { flatten, inflate } = require( 'jpflat' )
 const { promisify } = require( 'util' )
 const stringizer = require( './stringizer.js' )
-const { removeTypeKey } = require( './stringizer.js' )
-const { jsonPathPathReducer } = require( 'jpflat' )
 module.exports = {
     /**
      * A collection is a logical grouping of objects of similarish type.
@@ -13,6 +11,12 @@ module.exports = {
      * Doing this will ensure that find operations and the like will remain speedy without the need for an index.
      *
      * Complex find operations that involve searching multiple collections or large collections can be achieved using the redisearch module
+     *
+     * Since everything in redis is stored as a string, this library injects type hints by appending them to the keys with a delimiter.
+     *
+     * This behavior can be overridden by specifying the pathReduce and pathExpander.
+     *
+     * You can also provide your own own serializer and deserializer to change the way values are converted to strings.
      *
      * TODO: Add basic single key indexing
      * TODO: Add support for "sort indexes" for speedy paging using zsets
