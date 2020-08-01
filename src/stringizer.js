@@ -25,7 +25,6 @@ const stringizers = {
         to: () => '[]',
         from: () => []
     },
-    //Either the redis client to titan+tikv does not correctly handle empty strings through the send_command function, even though it should work...
     [ typeKeys.emptyString ]: {
         to: () => '\'\'',
         from: () => ''
