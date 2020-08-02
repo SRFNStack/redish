@@ -28,9 +28,14 @@ module.exports = {
      * @param deserializers Specify custom jpflat deserializers to use for deserialization. The default is to use require('./stringizer.js')
      * @param pathReducer The path reducer to use to create the path. Default is json path reduce from jpflat
      * @param pathExpander The path expander to use to deserialize. Default is the stringizer pathExpander, which uses jsonpath and appends type information to the path
+     * @param idGenerator A function that receives the object being saved and generates a new id for it. The default is to create a bson objectid.
      * @returns {{save(Object), findOneById(*)}}
      */
-    collection( client, collectionKey, serializers = [ stringizer ], deserializers = [ stringizer ], pathReducer = stringizer.pathReducer, pathExpander = stringizer.pathExpander) {
+    collection( client, collectionKey,
+                serializers = [ stringizer ], deserializers = [ stringizer ],
+                pathReducer = stringizer.pathReducer, pathExpander = stringizer.pathExpander,
+                idGenerator = ()=>ObjectID().toString()
+    ) {
         if( !client ) throw new Error( 'Client must be set before using a collection' )
         if( typeof client.send_command !== 'function' ) throw new Error( 'client must support send_command callback style function' )
         let cmd = promisify( client.send_command ).bind( client )
@@ -43,12 +48,12 @@ module.exports = {
              */
             async save( obj ) {
                 if( !obj || typeof obj !== 'object' )
-                    throw new Error( 'You can only save truthy non-array objects with redish' )
+                    throw new Error( 'You can only save truthy objects with redish' )
                 if( Array.isArray( obj ) && obj.length === 0 )
                     throw new Error( 'Empty arrays cannot be saved' )
                 let isNew = !obj.id
                 if( isNew ) {
-                    obj.id = ObjectID().toString()
+                    obj.id = idGenerator(obj)
                 }
                 let flatObj = await flatten( obj, serializers, pathReducer )
                 //begin transaction to ensure the collection zset stays consistent

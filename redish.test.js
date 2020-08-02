@@ -55,7 +55,7 @@ describe( 'save', () => {
 
     it( 'can only save truthy objects', async() => {
         for( let badValue of [ null, undefined, false, '', 5, -10, NaN ] ) {
-            await expect( testCollection.save( badValue ) ).rejects.toThrow( 'You can only save truthy non-array objects with redish' )
+            await expect( testCollection.save( badValue ) ).rejects.toThrow( 'You can only save truthy objects with redish' )
         }
     } )
 
