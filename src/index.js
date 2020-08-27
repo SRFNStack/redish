@@ -22,7 +22,7 @@ module.exports = {
      * @param deserializers Specify custom jpflat deserializers to use for deserialization. The default is to use require('./stringizer.js')
      * @param pathReducer The path reducer to use to flatten objects. Default is json path reduce from jpflat
      * @param pathExpander The path expander to use to deserialize. Default is the stringizer pathExpander, which uses jsonpath and appends type information to the path
-     * @returns {{findOneById: findOneById, save(*=, {collectionKey?: *, idGenerator?: *, auditUser?: *}): Promise<*>, deleteById(*=, *=): Promise<void>, findAll(*, *=, *=): Promise<*>}}
+     * @returns {{findOneById(*), save(*=, {collectionKey?: *, idGenerator?: *, auditUser?: *}): Promise<*>, deleteById(*=, *=): Promise<void>, findAll(*, *=, *=): Promise<*>}}
      */
     createDb( client,
               serializers = [ stringizer ],
