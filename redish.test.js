@@ -2,33 +2,54 @@ const redish = require( './src/index.js' )
 const ObjectID = require( 'isomorphic-mongo-objectid' )
 const stringizer = require( './src/stringizer.js' )
 
+
 const cmdRes = {
-    HDEL: [ 'ok' ],
-    HKEYS: [ [] ],
-    HMSET: [ 'ok' ],
-    HMGET: [ {} ],
-    MULTI: [ 'ok' ],
-    ZADD: [ 'ok' ],
-    EXEC: [ 'ok' ],
-    HGETALL: []
+    hdel: [ 'ok' ],
+    hkeys: [ [] ],
+    hmset: [ 'ok' ],
+    hmget: [ {} ],
+    multi: [ 'ok' ],
+    zadd: [ 'ok' ],
+    exec: [ 'ok' ],
+    hgetall: [],
+    zrange: []
 }
+const getResponse = (cmd) => {
+    if( cmdRes[ cmd ] ) {
+        if( cmdRes[ cmd ].length > 1 ) {
+            return cmdRes[ cmd ].pop()
+        } else {
+            return cmdRes[ cmd ][ 0 ]
+        }
+    } else {
+        return null
+    }
+}
+let mockMulti = {
+    exec: jest.fn((cb)=> cb()),
+    hmset: jest.fn(),
+    hdel: jest.fn(),
+    zadd: jest.fn(),
+    del: jest.fn(),
+    zrem: jest.fn(),
+}
+
 
 const mockClient = {
-    send_command: jest.fn( ( cmd, ...args ) => {
-        let cb = args.slice( -1 )[ 0 ]
-        if( cmdRes[ cmd ] ) {
-            if( cmdRes[ cmd ].length > 1 ) {
-                cb( undefined, cmdRes[ cmd ].pop() )
-            } else {
-                cb( undefined, cmdRes[ cmd ][ 0 ] )
-            }
-        } else {
-            cb( undefined, [] )
-        }
-    } )
+    watch: jest.fn((id, cb)=> cb()),
+    hkeys: jest.fn((id, cb)=>{
+        cb(undefined, getResponse('hkeys'))
+    }),
+    hgetall: jest.fn((key, cb)=>{
+        cb(undefined, getResponse('hgetall'))
+    }),
+    zrange: jest.fn((key, start, end, cb)=>{
+        cb(undefined, getResponse('zrange'))
+    }),
+    multi: jest.fn( () => mockMulti )
 }
 
-const testCollection = redish.createDb( mockClient )
+const db = redish.createDb( mockClient )
 
 const allTypes = {
     emptyObject: {},
@@ -45,7 +66,7 @@ const allTypes = {
     Date: new Date()
 }
 
-const cmdArgs = cmd => mockClient.send_command.mock.calls.find( args => args[ 0 ] === cmd )
+
 
 afterEach( () => {
     jest.clearAllMocks()
@@ -55,61 +76,60 @@ describe( 'save', () => {
 
     it( 'can only save truthy objects', async() => {
         for( let badValue of [ null, undefined, false, '', 5, -10, NaN ] ) {
-            await expect( testCollection.save( badValue ) ).rejects.toThrow( 'You can only save truthy objects with redish' )
+            await expect( db.save( badValue ) ).rejects.toThrow( 'You can only save truthy objects with redish' )
         }
     } )
 
     it( 'does not overwrite ids if set', async() => {
-        await testCollection.save( { id: 'unique' } )
-        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ 'unique', '$.id' + ':' + stringizer.typeKeys.string, 'unique' ] )
+        await db.save( { id: 'unique'}, {audit: false} )
+        expect( mockMulti.hmset.mock.calls[0] ).toEqual( ['unique', '$.id' + ':' + stringizer.typeKeys.string, 'unique'] )
     } )
 
     it( 'generates an object id hex string if id is not set', async() => {
-        let result = await testCollection.save( {} )
+        let result = await db.save( {}, {audit: false} )
         expect( ObjectID( result.id ).toString() ).toBe( result.id )
-        expect( cmdArgs( 'HMSET' )[ 1 ] ).toStrictEqual( [ result.id, '$.id' + ':' + stringizer.typeKeys.string, result.id ] )
+        expect( mockMulti.hmset.mock.calls[0]).toEqual( [result.id, '$.id' + ':' + stringizer.typeKeys.string, result.id] )
     } )
 
     it( 'sends hdel command when keys are deleted from an existing object', async() => {
-        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
-        await testCollection.save( { id: 'id' } )
-        expect( cmdArgs( 'HDEL' )[ 1 ] ).toStrictEqual( [ 'id', '$.foo' ] )
+        cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
+        await db.save( { id: 'id' }, {audit: false} )
+        expect( mockMulti.hdel.mock.calls[0]).toEqual( [ 'id', '$.foo' ] )
     } )
 
     it( 'watches the keys if it needs to delete fields to ensure consistent updates', async() => {
-        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
-        await testCollection.save( { id: 'id' } )
-        expect( cmdArgs( 'WATCH' )[ 1 ] ).toStrictEqual( [ 'id' ] )
+        cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
+        await db.save( { id: 'id' } )
+        expect(mockClient.watch.mock.calls[0][0]).toEqual( 'id' )
     } )
 
     it( 'does not send hkeys or hdel commands if the object is new', async() => {
-        await testCollection.save( {} )
-        expect( cmdArgs( 'HKEYS' ) ).toStrictEqual( undefined )
-        expect( cmdArgs( 'HDEL' ) ).toStrictEqual( undefined )
+        await db.save( {} )
+        expect( mockClient.hkeys.mock.calls.length ).toStrictEqual( 0 )
+        expect(  mockMulti.hdel.mock.calls.length ).toStrictEqual( 0 )
     } )
 
     it( 'does not send hdel command if no keys were deleted', async() => {
-        cmdRes.HKEYS.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' + ':' + stringizer.typeKeys.string ] )
-        await testCollection.save( { id: 'id', foo: 'foo' } )
-        expect( cmdArgs( 'HDEL' ) ).toStrictEqual( undefined )
+        cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' + ':' + stringizer.typeKeys.string ] )
+        await db.save( { id: 'id', foo: 'foo' } )
+        expect(  mockMulti.hdel.mock.calls.length ).toStrictEqual( 0 )
     } )
 
     it( 'adds the objects id to the collection\'s zset with a score of 0 if it\'s a new object', async() => {
-        let result = await testCollection.save( {}, 'test' )
-        expect( cmdArgs( 'ZADD' )[ 1 ] ).toStrictEqual( [ 'test', result.id, 0 ] )
+        let result = await db.save( {}, {collectionKey: 'test'} )
+        expect(mockMulti.zadd.mock.calls[0] ).toEqual( [ 'test', 0, result.id ] )
     } )
 
     it( 'does not add the object\'s id to the createDb\'s zset if no collection key is provided', async() => {
-        let result = await testCollection.save( {} )
-        expect(cmdArgs('ZADD'))
-        expect( cmdArgs( 'ZADD' ) ).toStrictEqual( undefined )
+        let result = await db.save( {} )
+        expect( mockMulti.zadd.mock.calls.length ).toStrictEqual( 0 )
     } )
 
     it( 'saves array root objects correctly', async() => {
-        let result = await testCollection.save( [ 5, 's' ] )
+        let result = await db.save( [ 5, 's' ], {audit: false} )
         expect( ObjectID( result.id ).toString() ).toBe( result.id )
-        expect( cmdArgs( 'HMSET' )[ 1 ] )
-            .toStrictEqual( [
+        expect( mockMulti.hmset.mock.calls[0] )
+            .toEqual( [
                                 result.id,
                                 '$[0]' + ':' + stringizer.typeKeys.number, '5',
                                 '$[1]' + ':' + stringizer.typeKeys.string, 's',
@@ -119,9 +139,9 @@ describe( 'save', () => {
 
     it( 'serializes types correctly', async() => {
 
-        let result = await testCollection.save( { ...allTypes } )
-        expect( cmdArgs( 'HMSET' )[ 1 ] )
-            .toStrictEqual( [
+        let result = await db.save( { ...allTypes }, {audit: false} )
+        expect( mockMulti.hmset.mock.calls[0]  )
+            .toEqual( [
                                 result.id,
                                 '$.emptyObject' + ':' + stringizer.typeKeys.emptyObject, '{}',
                                 '$.emptyArray' + ':' + stringizer.typeKeys.emptyArray, '[]',
@@ -141,9 +161,9 @@ describe( 'save', () => {
     } )
 
     it( 'serializes nested arrays correctly', async() => {
-        let result = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
-        expect( cmdArgs( 'HMSET' )[ 1 ] )
-            .toStrictEqual( [
+        let result = await db.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ], {audit: false} )
+        expect( mockMulti.hmset.mock.calls[0]  )
+            .toEqual( [
                                 result.id,
                                 '$[0][0][0][0]' + ':' + stringizer.typeKeys.number, '0',
                                 '$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number, '1',
@@ -154,9 +174,9 @@ describe( 'save', () => {
 
     it( 'serializes nested objects correctly', async() => {
 
-        let result = await testCollection.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } } )
-        expect( cmdArgs( 'HMSET' )[ 1 ] )
-            .toStrictEqual( [
+        let result = await db.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } }, {audit: false} )
+        expect( mockMulti.hmset.mock.calls[0]  )
+            .toEqual( [
                                 result.id,
                                 '$.a.a.a.a' + ':' + stringizer.typeKeys.number, '0',
                                 '$.a.a.a.b.b[0]' + ':' + stringizer.typeKeys.number, '0',
@@ -165,30 +185,22 @@ describe( 'save', () => {
                             ] )
     } )
 
+    it('sets the audit fields on new objects correctly', async ()=> {
+        let result = await db.save( {} , {auditUser: 'me'})
+        expect(new Date(result.createdAt).getTime() > 0).toStrictEqual(true)
+        expect(result.createdBy).toStrictEqual('me')
+        expect(result.updatedAt).toStrictEqual(undefined)
+        expect(result.updatedBy).toStrictEqual(undefined)
+    })
 
-    it( 'performs everything in a single transaction', async() => {
-        let result = await testCollection.save( {} )
-
-        let calls = mockClient.send_command.mock.calls
-        expect( calls.filter( a => a[ 0 ] === 'WATCH' ).length ).toStrictEqual( 1 )
-        expect( calls.filter( a => a[ 0 ] === 'MULTI' ).length ).toStrictEqual( 1 )
-        expect( calls.filter( a => a[ 0 ] === 'EXEC' ).length ).toStrictEqual( 1 )
-
-        let watchI, multiI, execI
-
-        calls.forEach( ( args, i ) => {
-            if( args[ 0 ] === 'WATCH' ) watchI = i
-            if( args[ 0 ] === 'MULTI' ) multiI = i
-            if( args[ 0 ] === 'EXEC' ) execI = i
-        } )
-
-        expect( watchI < multiI < execI ).toStrictEqual( true )
-    } )
-
-    it( 'throws an error if the transaction was unsuccessful', async() => {
-        cmdRes.EXEC.push( null )
-        expect( testCollection.save( {} ) ).rejects.toThrow()
-    } )
+    it('sets the audit fields on existing objects correctly', async ()=> {
+        let theDate = (new Date().getTime() - 100000)
+        let result = await db.save( {id: 1234, createdAt: theDate, createdBy: 'me'} , {auditUser: 'me'})
+        expect(result.createdAt).toStrictEqual(theDate)
+        expect(result.createdBy).toStrictEqual('me')
+        expect(new Date(result.updatedAt).getTime() > 0).toStrictEqual(true)
+        expect(result.updatedBy).toStrictEqual('me')
+    })
 
 } )
 
@@ -196,7 +208,7 @@ describe( 'save', () => {
 describe( 'findOneById', () => {
     it( 'should require a truthy id is passed', async() => {
         for( let badValue of [ null, undefined, false, '', 0, NaN ] ) {
-            await expect( testCollection.findOneById( badValue ) ).rejects.toThrow( 'You must provide an id' )
+            await expect( db.findOneById( badValue ) ).rejects.toThrow( 'You must provide an id' )
         }
     } )
 
@@ -219,8 +231,8 @@ describe( 'findOneById', () => {
             [ '$.id' + ':' + stringizer.typeKeys.string ]: id
         }
 
-        cmdRes.HGETALL.push( foundHash )
-        let result = await testCollection.findOneById( id )
+        cmdRes.hgetall.push( foundHash )
+        let result = await db.findOneById( id )
 
         expect( result.emptyObject ).toStrictEqual( {} )
         expect( result.emptyArray ).toStrictEqual( [] )
@@ -238,42 +250,85 @@ describe( 'findOneById', () => {
     } )
 
     it( 'deserializes nested arrays correctly', async() => {
-        let saved = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
-        cmdRes.HGETALL.push({
+        let saved = await db.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ], {audit: false} )
+        cmdRes.hgetall.push({
                                 ['$[0][0][0][0]' + ':' + stringizer.typeKeys.number]: '0',
                                 ['$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number]: '1',
                                 ['$.id' + ':' + stringizer.typeKeys.string]: saved.id
                             })
 
-        let found = await testCollection.findOneById( saved.id )
+        let found = await db.findOneById( saved.id )
         expect( saved ).toStrictEqual( found )
     } )
 
 
     it( 'deserializes nested objects correctly', async() => {
-        let saved = await testCollection.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } } )
-        cmdRes.HGETALL.push( {
+        let saved = await db.save( { a: { a: { a: { a: 0, b: { b: [ 0, { c: 'd' } ] } } } } }, {audit: false} )
+        cmdRes.hgetall.push( {
                                  [ '$.a.a.a.a' + ':' + stringizer.typeKeys.number ]: '0',
                                  [ '$.a.a.a.b.b[0]' + ':' + stringizer.typeKeys.number ]: '0',
                                  [ '$.a.a.a.b.b[1].c' + ':' + stringizer.typeKeys.string ]: 'd',
                                  [ '$.id' + ':' + stringizer.typeKeys.string ]: saved.id
                              } )
-        let found = await testCollection.findOneById( saved.id )
+        let found = await db.findOneById( saved.id )
         expect( saved ).toStrictEqual( found )
     } )
 
     it( 'sets the id correctly on found arrays', async() => {
-        let saved = await testCollection.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
-        cmdRes.HGETALL.push({
+        let saved = await db.save( [ [ [ [ 0, { foo: [ [ [ 1 ] ] ] } ] ] ] ] )
+        cmdRes.hgetall.push({
                                 ['$[0][0][0][0]' + ':' + stringizer.typeKeys.number]: '0',
                                 ['$[0][0][0][1].foo[0][0][0]' + ':' + stringizer.typeKeys.number]: '1',
                                 ['$.id' + ':' + stringizer.typeKeys.string]: saved.id
                             })
 
-        let found = await testCollection.findOneById( saved.id )
+        let found = await db.findOneById( saved.id )
         expect(saved.id).toBeTruthy()
         expect( saved.id ).toStrictEqual( found.id )
 
     } )
 
 } )
+
+describe("deleteById", ()=>{
+
+    it("calls del for the id", async() => {
+        let result = await db.deleteById(123)
+        expect(mockMulti.del.mock.calls[0]).toEqual([123])
+    })
+
+    it("calls zrem if a collection key is provided", async() => {
+        let result = await db.deleteById(123, "key")
+        expect(mockMulti.zrem.mock.calls[0]).toEqual(['key', 123])
+    })
+
+    it("doesn't call zrem if no collection key is provided", async() => {
+        let result = await db.deleteById(123)
+        expect(mockMulti.zrem.mock.calls.length).toStrictEqual(0)
+    })
+})
+
+describe("findAll", ()=> {
+    it("calls zrange with the correct start and end indexes", async() =>{
+        let result = await db.findAll('key')
+        expect(mockClient.zrange.mock.calls[0].slice(0,-1)).toEqual(['key', 0, 9])
+    })
+
+    it("uses the correct range for user supplied ranges", async() =>{
+        let result = await db.findAll('key', 3, 25)
+        expect(mockClient.zrange.mock.calls[0].slice(0,-1)).toEqual(['key', 75, 99])
+    })
+
+    it("returns an empty array if no ids are found", async()=>{
+        cmdRes.zrange.push(undefined)
+        let result = await db.findAll('key')
+        expect(result).toEqual([])
+    })
+
+    it("calls HGETALL for each id found", async()=>{
+        cmdRes.zrange.push([1,2,3,4])
+        let result = await db.findAll('key')
+
+        expect(mockClient.hgetall.mock.calls.map(a=>a[0])).toEqual([1,2,3,4])
+    })
+})
