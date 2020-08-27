@@ -3,7 +3,7 @@ const ObjectID = require( 'isomorphic-mongo-objectid' )
 const redis = require( 'redis' )
 const client = redis.createClient( 16379 )
 // client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
-const users = redish.collection( client, 'users' )
+const db = redish.createDb( client )
 
 afterAll(()=>client.quit())
 describe( 'redish', () => {
@@ -36,8 +36,8 @@ describe( 'redish', () => {
                           }
                       }
                   }
-                  let saved = await users.save( orig )
-                  let found = await users.findOneById( saved.id )
+                  let saved = await db.save( orig )
+                  let found = await db.findOneById( saved.id )
                   expect( ObjectID( saved.id ).toString() ).toBe( saved.id )
                   expect(saved.id).toBe(found.id)
                   for(let result of [saved, found]) {
@@ -71,13 +71,13 @@ describe( 'redish', () => {
 
               it( 'should delete keys that are deleted from objects', async() => {
 
-                  let update = await users.save({keep:'foo', del:'bar'})
+                  let update = await db.save({keep:'foo', del:'bar'})
                   delete update.del
                   update.add = 'boop'
 
-                  let updated = await users.save( update )
+                  let updated = await db.save( update )
 
-                  let updateFound = await users.findOneById( updated.id )
+                  let updateFound = await db.findOneById( updated.id )
                   expect(updateFound.id).toBe(update.id)
                   expect(updateFound.del).toBe(undefined)
                   expect(updateFound.add).toBe('boop')
@@ -85,8 +85,8 @@ describe( 'redish', () => {
 
               } )
               it( 'should save and retrieve arrays correctly', async() => {
-                  let array = await users.save( [ 1, 2, { foo: 'bar' } ] )
-                  let foundArray = await users.findOneById( array.id )
+                  let array = await db.save( [ 1, 2, { foo: 'bar' } ] )
+                  let foundArray = await db.findOneById( array.id )
                   expect(foundArray.id).toBe(array.id)
                   expect(foundArray[0]).toBe(array[0])
                   expect(foundArray[1]).toBe(array[1])

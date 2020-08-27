@@ -28,7 +28,7 @@ const mockClient = {
     } )
 }
 
-const testCollection = redish.collection( mockClient, 'test' )
+const testCollection = redish.createDb( mockClient )
 
 const allTypes = {
     emptyObject: {},
@@ -95,8 +95,14 @@ describe( 'save', () => {
     } )
 
     it( 'adds the objects id to the collection\'s zset with a score of 0 if it\'s a new object', async() => {
-        let result = await testCollection.save( {} )
+        let result = await testCollection.save( {}, 'test' )
         expect( cmdArgs( 'ZADD' )[ 1 ] ).toStrictEqual( [ 'test', result.id, 0 ] )
+    } )
+
+    it( 'does not add the object\'s id to the createDb\'s zset if no collection key is provided', async() => {
+        let result = await testCollection.save( {} )
+        expect(cmdArgs('ZADD'))
+        expect( cmdArgs( 'ZADD' ) ).toStrictEqual( undefined )
     } )
 
     it( 'saves array root objects correctly', async() => {
