@@ -1,6 +1,6 @@
 {
   "name": "redish",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Redis Protocol Object/Document storage in collections",
   "author": "Robert Kempton <r@snow87.com>",
   "private": false,

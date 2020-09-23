@@ -85,6 +85,23 @@ describe(
             expect( updateFound.keep ).toBe( 'foo' )
 
         } )
+
+        it( 'should not delete keys that are deleted from objects when using upsert', async() => {
+
+            let update = await db.upsert( { keep: 'foo', del: 'bar' } )
+            delete update.del
+            update.add = 'boop'
+
+            let updated = await db.upsert( update )
+
+            let updateFound = await db.findOneById( updated.id )
+            expect( updateFound.id ).toBe( update.id )
+            expect( updateFound.del ).toBe( 'bar' )
+            expect( updateFound.add ).toBe( 'boop' )
+            expect( updateFound.keep ).toBe( 'foo' )
+
+        } )
+
         it( 'should save and retrieve arrays correctly', async() => {
             let array = await db.save( [ 1, 2, { foo: 'bar' } ] )
             let foundArray = await db.findOneById( array.id )

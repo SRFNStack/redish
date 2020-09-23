@@ -97,6 +97,12 @@ describe( 'save', () => {
         expect( mockMulti.hdel.mock.calls[0]).toEqual( [ 'id', '$.foo' ] )
     } )
 
+    it( 'doesn\'t send hdel command when using upsert to update an existing object', async() => {
+        cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
+        await db.upsert( { id: 'id' }, {audit: false} )
+        expect( mockMulti.hdel.mock.calls.length).toEqual( 0 )
+    } )
+
     it( 'watches the keys if it needs to delete fields to ensure consistent updates', async() => {
         cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
         await db.save( { id: 'id' } )
