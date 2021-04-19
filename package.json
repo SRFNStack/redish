@@ -1,6 +1,6 @@
 {
-  "name": "redish",
-  "version": "0.0.8",
+  "name": "@srfnstack/redish",
+  "version": "0.1.0",
   "description": "Redis Protocol Object/Document storage in collections",
   "author": "Robert Kempton <r@snow87.com>",
   "private": false,
@@ -30,7 +30,7 @@
   ],
   "dependencies": {
     "isomorphic-mongo-objectid": "^1.0.9",
-    "jpflat": "1.2.2"
+    "jpflat": "1.2.4"
   },
   "devDependencies": {
     "jest": "^26.0.1",
