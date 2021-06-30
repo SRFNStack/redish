@@ -18,15 +18,15 @@ module.exports = {
      *
      * @param client The redis client to use, this library assumes this implementation: https://www.npmjs.com/package/redis.
 
-     * @param serializers Specify custom jpflat serializers to use for serialization. The default is to use require('./stringizer.js')
-     * @param deserializers Specify custom jpflat deserializers to use for deserialization. The default is to use require('./stringizer.js')
+     * @param valueSerializers Specify custom jpflat valueSerializers to use for serialization. The default is to use require('./stringizer.js')
+     * @param valueDeserializers Specify custom jpflat valueDeserializers to use for deserialization. The default is to use require('./stringizer.js')
      * @param pathReducer The path reducer to use to flatten objects. Default is json path reduce from jpflat
      * @param pathExpander The path expander to use to deserialize. Default is the stringizer pathExpander, which uses jsonpath and appends type information to the path
      * @returns {{findOneById(*), save(*=, {collectionKey?: *, idGenerator?: *, auditUser?: *}): Promise<*>, deleteById(*=, *=): Promise<void>, findAll(*, *=, *=): Promise<*>}}
      */
     createDb( client,
-              serializers = [ stringizer ],
-              deserializers = [ stringizer ],
+              valueSerializers = [stringizer],
+              valueDeserializers = [stringizer],
               pathReducer = stringizer.pathReducer,
               pathExpander = stringizer.pathExpander ) {
 
@@ -44,7 +44,7 @@ module.exports = {
             if( !id ) throw new Error( 'You must provide an id' )
             let res = await hgetall( id )
             if( res ) {
-                let inflated = await inflate( res, deserializers, pathExpander )
+                let inflated = await inflate( res, { valueDeserializers, pathExpander } )
                 if( Array.isArray( inflated ) ) {
                     inflated.id = id
                 }
@@ -53,18 +53,20 @@ module.exports = {
             return res
         }
 
-        async function doSave( obj, options, deleteMissingKeys) {
+        async function doSave( obj, options, deleteMissingKeys ) {
             let collectionKey,
                 idGenerator,
                 audit,
                 auditUser
-            if(typeof options === 'string'){
+            if( typeof options === 'string' ) {
                 collectionKey = options
-            } else if (Array.isArray(options) || typeof options !== 'object'){
-                throw new Error('Invalid save options:'+JSON.stringify(options))
+            } else if( Array.isArray( options ) || typeof options !== 'object' ) {
+                throw new Error( 'Invalid save options:' + JSON.stringify( options ) )
             } else {
                 collectionKey = options.collectionKey
-                idGenerator = options.idGenerator || function(){return ObjectID().toString()}
+                idGenerator = options.idGenerator || function() {
+                    return ObjectID().toString()
+                }
                 audit = typeof options.audit === 'boolean' ? options.audit : true
                 auditUser = options.auditUser
             }
@@ -85,9 +87,9 @@ module.exports = {
                 if( auditUser ) obj.updatedBy = auditUser
             }
 
-            let flatObj = await flatten( obj, serializers, pathReducer )
+            let flatObj = await flatten( obj, { valueSerializers, pathReducer } )
             //begin transaction to ensure the zset stays consistent
-            await watch( ...[obj.id, collectionKey].filter(i=>i) )
+            await watch( [obj.id, collectionKey].filter( i => !!i ) )
             const multi = client.multi()
             multi.hmset( obj.id, ...Object.entries( flatObj ).flat() )
             if( !isNew && deleteMissingKeys ) {
@@ -96,7 +98,7 @@ module.exports = {
                 const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
                 if( deletedKeys && deletedKeys.length > 0 )
                     multi.hdel( obj.id, ...deletedKeys )
-            } else if(isNew) {
+            } else if( isNew ) {
                 if( collectionKey )
                     multi.zadd( collectionKey, 0, obj.id )
             }
@@ -146,7 +148,6 @@ module.exports = {
              * @returns {Promise<void>}
              */
             async deleteById( id, collectionKey ) {
-                await watch( ...[id, collectionKey].filter(i=>i) )
 
                 const multi = client.multi()
                 multi.del( id )

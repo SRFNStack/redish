@@ -105,8 +105,14 @@ describe( 'save', () => {
 
     it( 'watches the keys if it needs to delete fields to ensure consistent updates', async() => {
         cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
+        await db.save( { id: 'id' }, 'my-collection-1234' )
+        expect(mockClient.watch.mock.calls[0][0]).toEqual( ['id', 'my-collection-1234'] )
+    } )
+
+    it( 'doesn\'t watch the collection key if it is not supplied', async() => {
+        cmdRes.hkeys.push( [ '$.id' + ':' + stringizer.typeKeys.string, '$.foo' ] )
         await db.save( { id: 'id' } )
-        expect(mockClient.watch.mock.calls[0][0]).toEqual( 'id' )
+        expect(mockClient.watch.mock.calls[0][0]).toEqual( ['id'] )
     } )
 
     it( 'does not send hkeys or hdel commands if the object is new', async() => {

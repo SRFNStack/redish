@@ -30,10 +30,10 @@
   ],
   "dependencies": {
     "isomorphic-mongo-objectid": "^1.0.9",
-    "jpflat": "1.2.4"
+    "jpflat": "1.2.5"
   },
   "devDependencies": {
     "jest": "^26.0.1",
-    "redis": "3.0.2"
+    "redis": "^3.1.2"
   }
 }
