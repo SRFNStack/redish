@@ -87,7 +87,7 @@ module.exports = {
 
             let flatObj = await flatten( obj, serializers, pathReducer )
             //begin transaction to ensure the zset stays consistent
-            await watch( obj.id )
+            await watch( ...[obj.id, collectionKey].filter(i=>i) )
             const multi = client.multi()
             multi.hmset( obj.id, ...Object.entries( flatObj ).flat() )
             if( !isNew && deleteMissingKeys ) {
@@ -146,7 +146,7 @@ module.exports = {
              * @returns {Promise<void>}
              */
             async deleteById( id, collectionKey ) {
-                await watch( id )
+                await watch( ...[id, collectionKey].filter(i=>i) )
 
                 const multi = client.multi()
                 multi.del( id )
