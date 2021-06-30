@@ -2,6 +2,22 @@ const ObjectID = require( 'isomorphic-mongo-objectid' )
 const { flatten, inflate } = require( 'jpflat' )
 const { promisify } = require( 'util' )
 const stringizer = require( './stringizer.js' )
+
+const fs = require( 'fs' )
+
+const scriptNames = [ 'save', 'delete', 'appendToArray' ]
+
+const scriptShas = {}
+
+function loadScripts( client ) {
+    for( let script of scriptNames ) {
+        client.script( 'load', fs.readFileSync( `${__dirname}/${script}.lua` ).toString( 'utf-8' ), ( err, res ) => {
+            if( err ) throw err
+            scriptShas[ script ] = res
+        } )
+    }
+}
+
 module.exports = {
     /**
      * Create a db object to use for saving arbitrary objects to redis.
@@ -30,8 +46,11 @@ module.exports = {
               pathReducer = stringizer.pathReducer,
               pathExpander = stringizer.pathExpander ) {
 
+        loadScripts( client )
+
         if( !client ) throw new Error( 'Client must be set before using the db' )
         let hkeys = promisify( client.hkeys ).bind( client )
+        let evalsha = promisify( client.evalsha ).bind( client )
         let watch = promisify( client.watch ).bind( client )
         let hgetall = promisify( client.hgetall ).bind( client )
 
@@ -53,18 +72,18 @@ module.exports = {
             return res
         }
 
-        async function doSave( obj, options, deleteMissingKeys) {
+        async function doSave( obj, options, deleteMissingKeys ) {
             let collectionKey,
                 idGenerator,
                 audit,
                 auditUser
-            if(typeof options === 'string'){
+            if( typeof options === 'string' ) {
                 collectionKey = options
-            } else if (Array.isArray(options) || typeof options !== 'object'){
-                throw new Error('Invalid save options:'+JSON.stringify(options))
+            } else if( Array.isArray( options ) || typeof options !== 'object' ) {
+                throw new Error( 'Invalid save options:' + JSON.stringify( options ) )
             } else {
                 collectionKey = options.collectionKey
-                idGenerator = options.idGenerator || function(){return ObjectID().toString()}
+                idGenerator = options.idGenerator || function() {return ObjectID().toString()}
                 audit = typeof options.audit === 'boolean' ? options.audit : true
                 auditUser = options.auditUser
             }
@@ -96,7 +115,7 @@ module.exports = {
                 const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
                 if( deletedKeys && deletedKeys.length > 0 )
                     multi.hdel( obj.id, ...deletedKeys )
-            } else if(isNew) {
+            } else if( isNew ) {
                 if( collectionKey )
                     multi.zadd( collectionKey, 0, obj.id )
             }
@@ -172,6 +191,10 @@ module.exports = {
                     return await Promise.all( ids.map( id => findOneById( id ) ) )
                 }
                 return []
+            },
+            async appendToArray( path, elements ) {
+
+                //get the current length
             },
             // /**
             //  * Scan the collection for a object that has the specified value for the field
