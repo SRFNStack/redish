@@ -4,7 +4,7 @@ const redis = require( 'redis' )
 const client = redis.createClient( 6379 )
 // client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
 const db = redish.createDb( client )
-
+const foo = db.collection('foo')
 afterAll( () => client.quit() )
 describe(
     'redish',
@@ -37,9 +37,10 @@ describe(
                     }
                 }
             }
-            let saved = await db.save( orig )
-            let found = await db.findOneById( saved.id )
-            expect( ObjectID( saved.id ).toString() ).toBe( saved.id )
+            let saved = await foo.save( orig )
+            let found = await foo.findOneById( saved.id )
+            let objectId = saved.id.split('foo__')[1];
+            expect( ObjectID( objectId ).toString() ).toBe( objectId )
             expect( saved.id ).toBe( found.id )
             for( let result of [ saved, found ] ) {
                 expect( result.emptyObject ).toStrictEqual( orig.emptyObject )
@@ -72,13 +73,13 @@ describe(
 
         it( 'should delete keys that are deleted from objects', async() => {
 
-            let update = await db.save( { keep: 'foo', del: 'bar' } )
+            let update = await foo.save( { keep: 'foo', del: 'bar' } )
             delete update.del
             update.add = 'boop'
 
-            let updated = await db.save( update )
+            let updated = await foo.save( update )
 
-            let updateFound = await db.findOneById( updated.id )
+            let updateFound = await foo.findOneById( updated.id )
             expect( updateFound.id ).toBe( update.id )
             expect( updateFound.del ).toBe( undefined )
             expect( updateFound.add ).toBe( 'boop' )
@@ -88,13 +89,13 @@ describe(
 
         it( 'should not delete keys that are deleted from objects when using upsert', async() => {
 
-            let update = await db.upsert( { keep: 'foo', del: 'bar' } )
+            let update = await foo.upsert( { keep: 'foo', del: 'bar' } )
             delete update.del
             update.add = 'boop'
 
-            let updated = await db.upsert( update )
+            let updated = await foo.upsert( update )
 
-            let updateFound = await db.findOneById( updated.id )
+            let updateFound = await foo.findOneById( updated.id )
             expect( updateFound.id ).toBe( update.id )
             expect( updateFound.del ).toBe( 'bar' )
             expect( updateFound.add ).toBe( 'boop' )
@@ -103,8 +104,8 @@ describe(
         } )
 
         it( 'should save and retrieve arrays correctly', async() => {
-            let array = await db.save( [ 1, 2, { foo: 'bar' } ] )
-            let foundArray = await db.findOneById( array.id )
+            let array = await foo.save( [ 1, 2, { foo: 'bar' } ] )
+            let foundArray = await foo.findOneById( array.id )
             expect( foundArray.id ).toBe( array.id )
             expect( foundArray[ 0 ] ).toBe( array[ 0 ] )
             expect( foundArray[ 1 ] ).toBe( array[ 1 ] )
@@ -112,19 +113,19 @@ describe(
         } )
 
         it('should be able to find all of the items in a collection', async()=>{
-            let collectionKey = 'k' + new Date().getTime()
-            let saved = await Promise.all( [1,2,3,4,5,6,7,8,9,10].map( k=>db.save( {k}, {collectionKey: collectionKey})))
-            let found = await db.findAll(collectionKey)
+            let bar = db.collection('bar'+new Date().getTime())
+            let saved = await Promise.all( [1,2,3,4,5,6,7,8,9,10].map( k=>bar.save( {k})))
+            let found = await bar.findAll()
             expect(found).toStrictEqual(saved)
 
         })
 
         it('should be able to delete records correctly', async()=>{
-            let saved = await db.save({yep:true})
-            let beforeDelete = await db.findOneById(saved.id)
+            let saved = await foo.save({yep:true})
+            let beforeDelete = await foo.findOneById(saved.id)
             expect(saved).toStrictEqual(beforeDelete)
-            await db.deleteById(saved.id)
-            let found = await db.findOneById(saved.id)
+            await foo.deleteById(saved.id)
+            let found = await foo.findOneById(saved.id)
             expect(found).toStrictEqual(null)
         })
 
