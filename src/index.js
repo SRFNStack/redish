@@ -46,11 +46,12 @@ module.exports = {
              * @param schema A json schema to use for validation on save
              * @param idField The name of the idField to use as the unique Id. If unset, the 'id' field is used.
              *                If set, it will be prefixed with the collection key to ensure unique keys across collections.
-             * @param ajvOptions An Options object to initialize ajv with. Not used if schema is not set
+             * @param ajv A pre-created instance of ajv to use for schema validation.
+             * @param ajvOptions An Options object to initialize ajv with. Not used if schema is not set or if ajv instance is passed.
              * @param idGenerator A function that receives the object being saved and generates a new id for it. The default is to create a bson objectid.
              * @param enableAudit Whether to enable auditing addition and management of auditing fields createdBy, createdAt, updatedBy, updatedAt
              */
-            collection(collectionKey, {schema, idField, ajvOptions, idGenerator, enableAudit} = {}){
+            collection(collectionKey, {schema, idField, ajv, ajvOptions, idGenerator, enableAudit} = {}){
 
                 if(typeof collectionKey !== 'string' || collectionKey.length<1){
                     throw new Error('collectionKey must be a non-empty string')
@@ -66,7 +67,11 @@ module.exports = {
                 }
                 let validate
                 if(schema){
-                    validate = new Ajv(ajvOptions || undefined).compile(schema)
+                    if(ajv){
+                        validate = ajv.compile(schema)
+                    } else {
+                        validate = new Ajv( ajvOptions || undefined ).compile( schema )
+                    }
                 }
                 const keyPrefix = `${collectionKey}__`
                 const ensurePrefix = id => {

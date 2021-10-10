@@ -1,6 +1,7 @@
 const redish = require( './src/index.js' )
 const ObjectID = require( 'isomorphic-mongo-objectid' )
 const stringizer = require( './src/stringizer.js' )
+const Ajv = require( "ajv" );
 
 
 const cmdRes = {
@@ -233,6 +234,64 @@ describe( 'save', () => {
                     "missingProperty": "name"
                 },
                 "message": "must have required property 'name'"
+            }])
+        }
+
+    } )
+
+    it( 'uses ajvOptions if passed', async () => {
+        const ajvOptions = db.collection('ajvOptions', {
+            ajvOptions: {strictNumbers: true},
+            schema: {
+                type: 'object',
+                properties: {
+                    number: { type: 'number' }
+                },
+                required: ['number']
+            }
+        })
+        try {
+            await ajvOptions.save( { id: 'unique', number: '1234' } )
+            fail('save should\'ve thrown')
+        } catch( e ) {
+            expect(e.validationErrors).toEqual([{
+                "instancePath": "/number",
+                "schemaPath": "#/properties/number/type",
+                "keyword": "type",
+                "params": {
+                    "type": "number"
+                },
+                "message": "must be number"
+            }])
+        }
+
+    } )
+
+    it( 'uses ajv if passed', async () => {
+        const ajvInst = db.collection('ajv', {
+            ajv: new Ajv(
+                {strictNumbers: true}
+            ),
+            schema: {
+                type: 'object',
+                properties: {
+                    number: { type: 'number' }
+                },
+                required: ['number']
+            }
+        })
+        try {
+            await ajvInst.save( { id: 'unique', number: '1234' } )
+            fail('save should\'ve thrown')
+        } catch( e ) {
+            expect(e.validationErrors).toEqual([{
+                "instancePath": "/number",
+                "schemaPath": "#/properties/number/type",
+                "keyword": "type",
+                "params": {
+                    "type": "number"
+                },
+                "message": "must be number"
             }])
         }
 
