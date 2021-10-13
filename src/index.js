@@ -3,6 +3,7 @@ const { flatten, inflate } = require( 'jpflat' )
 const { promisify } = require( 'util' )
 const stringizer = require( './stringizer.js' )
 const Ajv = require('ajv')
+const ajvFormats = require('ajv-formats')
 module.exports = {
     /**
      * Create a db object to use for saving arbitrary objects to redis.
@@ -48,10 +49,12 @@ module.exports = {
              *                If set, it will be prefixed with the collection key to ensure unique keys across collections.
              * @param ajv A pre-created instance of ajv to use for schema validation.
              * @param ajvOptions An Options object to initialize ajv with. Not used if schema is not set or if ajv instance is passed.
+             *                   ajv-formats are installed when an ajv instance is not passed.
+             * @param ajvFormatsOptions An Options object to pass to ajv-formats. ajv-formats is not installed and these options are not used if an ajv instance is passed.
              * @param idGenerator A function that receives the object being saved and generates a new id for it. The default is to create a bson objectid.
              * @param enableAudit Whether to enable auditing addition and management of auditing fields createdBy, createdAt, updatedBy, updatedAt
              */
-            collection(collectionKey, {schema, idField, ajv, ajvOptions, idGenerator, enableAudit} = {}){
+            collection(collectionKey, {schema, idField, ajv, ajvOptions, ajvFormatsOptions, idGenerator, enableAudit} = {}){
 
                 if(typeof collectionKey !== 'string' || collectionKey.length<1){
                     throw new Error('collectionKey must be a non-empty string')
@@ -70,7 +73,9 @@ module.exports = {
                     if(ajv){
                         validate = ajv.compile(schema)
                     } else {
-                        validate = new Ajv( ajvOptions || undefined ).compile( schema )
+                        let defaultAjv = new Ajv( ajvOptions || undefined );
+                        ajvFormats(defaultAjv, ajvFormatsOptions || {})
+                        validate = defaultAjv.compile( schema )
                     }
                 }
                 const keyPrefix = `${collectionKey}__`
