@@ -103,7 +103,7 @@ module.exports = {
                     return res
                 }
 
-                async function doSave( obj, auditUser, deleteMissingKeys ) {
+                async function doSave( obj, auditUser, isPatch ) {
                     if( !obj || typeof obj !== 'object' )
                         throw new Error( 'You can only save truthy objects with redish' )
                     if( Array.isArray( obj ) && obj.length === 0 )
@@ -120,17 +120,27 @@ module.exports = {
                         if( auditUser ) obj.updatedBy = auditUser
                     }
                     obj[idField] = ensurePrefix(obj[idField])
-                    if(validate && !validate(obj)) {
-                        const err = new Error(`object with id ${obj[idField]} being saved to collection ${collectionKey} is invalid. `)
-                        err.validationErrors = [].concat(validate.errors)
-                        throw err
-                    }
                     let flatObj = await flatten( obj, { valueSerializers, pathReducer } )
+                    if(validate){
+                        let objToValidate = obj
+                        if(isPatch) {
+                            const existingFields = await hgetall( obj[idField] )
+                            const updated = Object.assign(existingFields, flatObj)
+                            objToValidate = await  inflate( updated, { valueDeserializers, pathExpander } )
+                        }
+                        if( !validate(objToValidate) ) {
+                            const err = new Error(`object with id ${obj[idField]} being saved to collection ${collectionKey} is invalid. `)
+                            err.validationErrors = [].concat(validate.errors)
+                            throw err
+                        }
+                    }
+
                     //begin transaction to ensure the zset stays consistent
                     await watch( [obj[idField], collectionKey].filter( i => !!i ) )
                     const multi = client.multi()
                     multi.hmset( obj[idField], ...Object.entries( flatObj ).flat() )
-                    if( !isNew && deleteMissingKeys ) {
+                    if( !isNew && !isPatch ) {
+                        //delete any removed keys if this is not a patch
                         let currentKeys = !isNew && await hkeys( obj[idField] ) || []
                         //Get the current set of object keys and delete any keys that do not exist on the current object
                         const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
@@ -154,7 +164,7 @@ module.exports = {
                      */
                     //TODO add list of keys to index
                     async save( obj, auditUser ) {
-                        return doSave( obj, auditUser, true )
+                        return doSave( obj, auditUser, false )
                     },
                     /**
                      * Upsert an object by id
@@ -166,7 +176,7 @@ module.exports = {
                      * @param auditUser The optional user identifier to use for the "By" audit fields
                      */
                     async upsert( obj, auditUser ) {
-                        return doSave( obj, auditUser, false )
+                        return doSave( obj, auditUser, true )
                     },
                     /**
                      * Delete an object by it's id
