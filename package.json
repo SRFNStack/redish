@@ -1,6 +1,6 @@
 {
   "name": "@srfnstack/redish",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Redis Protocol Object/Document storage in collections",
   "author": "Robert Kempton <r@snow87.com>",
   "private": false,

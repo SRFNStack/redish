@@ -78,7 +78,11 @@ module.exports = {
                     } else {
                         let defaultAjv = new Ajv( ajvOptions || undefined );
                         ajvFormats(defaultAjv, ajvFormatsOptions || {})
-                        ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
+                        if(ajvKeywordsOptions){
+                            ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
+                        } else {
+                            ajvKeywords(defaultAjv)
+                        }
                         validate = defaultAjv.compile( schema )
                     }
                 }
