@@ -1,6 +1,5 @@
 const ObjectID = require( 'isomorphic-mongo-objectid' )
 const { flatten, inflate } = require( 'jpflat' )
-const { promisify } = require( 'util' )
 const stringizer = require( './stringizer.js' )
 const Ajv = require('ajv')
 const ajvFormats = require('ajv-formats')
@@ -38,9 +37,6 @@ module.exports = {
         if(typeof pathExpander !== 'function') throw 'pathExpander must be a function'
 
         if( !client ) throw new Error( 'Client must be set before using the db' )
-        let hkeys = promisify( client.hkeys ).bind( client )
-        let watch = promisify( client.watch ).bind( client )
-        let hgetall = promisify( client.hgetall ).bind( client )
 
         return {
             /**
@@ -100,7 +96,10 @@ module.exports = {
                  */
                 async function findOneById( id ) {
                     id = ensurePrefix(id)
-                    let res = await hgetall( id )
+                    //hGetAll returns an empty object, even if the key doesn't exist
+                    let exists = await client.exists(id)
+                    if(!exists) return null
+                    let res = await client.hGetAll( id )
                     if( res ) {
                         let inflated = await inflate( res, { valueDeserializers, pathExpander } )
                         if( Array.isArray( inflated ) ) {
@@ -132,7 +131,7 @@ module.exports = {
                     if(validate){
                         let objToValidate = obj
                         if(isPatch) {
-                            const existingFields = await hgetall( obj[idField] )
+                            const existingFields = await client.hGetAll( obj[idField] )
                             const updated = Object.assign(existingFields, flatObj)
                             objToValidate = await  inflate( updated, { valueDeserializers, pathExpander } )
                         }
@@ -144,20 +143,20 @@ module.exports = {
                     }
 
                     //begin transaction to ensure the zset stays consistent
-                    await watch( [obj[idField], collectionKey].filter( i => !!i ) )
+                    await client.watch( [obj[idField], collectionKey] )
                     const multi = client.multi()
-                    multi.hmset( obj[idField], ...Object.entries( flatObj ).flat() )
+                    await multi.hSet(obj[idField], Object.entries(flatObj))
                     if( !isNew && !isPatch ) {
                         //delete any removed keys if this is not a patch
-                        let currentKeys = !isNew && await hkeys( obj[idField] ) || []
+                        let currentKeys = !isNew && await client.hKeys( obj[idField] ) || []
                         //Get the current set of object keys and delete any keys that do not exist on the current object
                         const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
                         if( deletedKeys && deletedKeys.length > 0 )
-                            multi.hdel( obj[idField], ...deletedKeys )
+                            await multi.hDel( obj[idField], ...deletedKeys )
                     } else if( isNew ) {
-                        multi.zadd( collectionKey, 0, obj[idField] )
+                        await multi.zAdd( collectionKey, {score: 0, value: obj[idField] } )
                     }
-                    await promisify( multi.exec ).bind( multi )()
+                    await multi.exec()
                     return obj
                 }
                 return {
@@ -195,8 +194,8 @@ module.exports = {
                         id = ensurePrefix(id)
                         const multi = client.multi()
                         multi.del( id )
-                        multi.zrem( collectionKey, id )
-                        await promisify( multi.exec ).bind( multi )()
+                        multi.zRem( collectionKey, id )
+                        await multi.exec()
                     },
                     /**
                      * Find all of the objects stored in this collection, one page at a time
@@ -204,14 +203,9 @@ module.exports = {
                      * @param size The number of objects to retrieve at a time
                      */
                     async findAll( page = 0, size = 10 ) {
-                        const ids = await new Promise( ( resolve, reject ) => {
-                            let start = page * size
-                            let end = start + size - 1
-                            client.zrange( collectionKey, start, end, ( err, res ) => {
-                                if( err ) reject( err )
-                                else resolve( res )
-                            } )
-                        } )
+                        let start = page * size
+                        let end = start + size - 1
+                        const ids = await client.zRange( collectionKey, start, end)
                         if( ids && ids.length ) {
                             return await Promise.all( ids.map( id => findOneById( id ) ) )
                         }

@@ -1,6 +1,6 @@
 {
   "name": "@srfnstack/redish",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Redis Protocol Object/Document storage in collections",
   "author": "Robert Kempton <r@snow87.com>",
   "private": false,
@@ -37,6 +37,6 @@
   },
   "devDependencies": {
     "jest": "^27.2.5",
-    "redis": "^3.1.2"
+    "redis": "^4.1.0"
   }
 }

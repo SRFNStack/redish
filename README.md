@@ -11,7 +11,11 @@ Redish adds collections, which are much like mongo collections, or tables in RDB
 It supports storing and retrieving objects with the data types of properties preserved on retrieval.
 
 ## Getting Started
-Provide a redis client to initialize the db, the official redis client is recommended.
+Provide a redis client to initialize the db.
+
+You should use  https://www.npmjs.com/package/redis version 4+.
+
+version 3 will not work for 0.3+ of redish.
 
 Serialization configuration is done once per db. You can create multiple instances of db if you wish.
 

@@ -1,10 +1,12 @@
 const redish = require( './src/index.js' )
 const ObjectID = require( 'isomorphic-mongo-objectid' )
 const redis = require( 'redis' )
-const client = redis.createClient( 6379 )
-// client.auth("90d959b7-03b1-43f7-8f55-8ea716a29b2f", console.log)
+const client = redis.createClient( {url:"redis://localhost:6379"} )
 const db = redish.createDb( client )
 const foo = db.collection('foo')
+beforeAll(async ()=>{
+    await client.connect()
+})
 afterAll( () => client.quit() )
 describe(
     'redish',
