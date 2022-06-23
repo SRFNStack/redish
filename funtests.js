@@ -1,3 +1,3 @@
 module.exports = {
-    testPathIgnorePatterns: ["redish.test.js"]
-};
+  testPathIgnorePatterns: ['redish.test.js']
+}

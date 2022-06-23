@@ -1,12 +1,12 @@
-const ObjectID = require( 'isomorphic-mongo-objectid' )
-const { flatten, inflate } = require( 'jpflat' )
-const stringizer = require( './stringizer.js' )
+const ObjectID = require('isomorphic-mongo-objectid')
+const { flatten, inflate } = require('jpflat')
+const stringizer = require('./stringizer.js')
 const Ajv = require('ajv')
 const ajvFormats = require('ajv-formats')
 const ajvKeywords = require('ajv-keywords')
 
 module.exports = {
-    /**
+  /**
      * Create a db object to use for saving arbitrary objects to redis.
      *
      * Since everything in redis is stored as a string, this library injects type hints by appending them to the keys with a delimiter.
@@ -26,20 +26,20 @@ module.exports = {
      * @param pathReducer The path reducer to use to flatten objects. Default is json path reduce from jpflat
      * @param pathExpander The path expander to use to deserialize. Default is the stringizer pathExpander, which uses jsonpath and appends type information to the path
      */
-    createDb( client, {valueSerializers, valueDeserializers, pathReducer, pathExpander} = {} ) {
-        if(!valueSerializers) valueSerializers = [stringizer]
-        if(!Array.isArray(valueSerializers)) valueSerializers =[valueSerializers];
-        if(!valueDeserializers) valueDeserializers = [stringizer]
-        if(!Array.isArray(valueDeserializers)) valueDeserializers =[valueDeserializers];
-        if(!pathReducer) pathReducer = stringizer.pathReducer
-        if(typeof pathReducer !== 'function') throw 'pathReducer must be a function'
-        if(!pathExpander) pathExpander = stringizer.pathExpander
-        if(typeof pathExpander !== 'function') throw 'pathExpander must be a function'
+  createDb (client, { valueSerializers, valueDeserializers, pathReducer, pathExpander } = {}) {
+    if (!valueSerializers) valueSerializers = [stringizer]
+    if (!Array.isArray(valueSerializers)) valueSerializers = [valueSerializers]
+    if (!valueDeserializers) valueDeserializers = [stringizer]
+    if (!Array.isArray(valueDeserializers)) valueDeserializers = [valueDeserializers]
+    if (!pathReducer) pathReducer = stringizer.pathReducer
+    if (typeof pathReducer !== 'function') throw new Error('pathReducer must be a function')
+    if (!pathExpander) pathExpander = stringizer.pathExpander
+    if (typeof pathExpander !== 'function') throw new Error('pathExpander must be a function')
 
-        if( !client ) throw new Error( 'Client must be set before using the db' )
+    if (!client) throw new Error('Client must be set before using the db')
 
-        return {
-            /**
+    return {
+      /**
              * Create a collection of objects. The items in the collection are maintained in a zset to allow finding everything and pagination
              * @param collectionKey The name of the collection. The collection key is appended to the idField to ensure unique keys across collections
              * @param schema A json schema to use for validation on save
@@ -52,115 +52,117 @@ module.exports = {
              * @param ajvKeywordsOptions An Options object to pass to ajv-keywords. ajv-keywords is not installed and these options are not used if an ajv instance is passed.
              * @param idGenerator A function that receives the object being saved and generates a new id for it. The default is to create a bson objectid.
              * @param enableAudit Whether to enable auditing addition and management of auditing fields createdBy, createdAt, updatedBy, updatedAt
+             * @param {(object) => number} calculateScore A function to calculate the score to use when adding a new object to a zset.
+             *          This score determines the order records are returned in when calling findAll.
+             *          The default is to return the current millis at the time of storage
              */
-            collection(collectionKey, {schema, idField, ajv, ajvOptions, ajvFormatsOptions, ajvKeywordsOptions, idGenerator, enableAudit} = {}){
-
-                if(typeof collectionKey !== 'string' || collectionKey.length<1){
-                    throw new Error('collectionKey must be a non-empty string')
-                }
-                if(idField && typeof idField !== 'string'){
-                    throw new Error('idField must be a string')
-                }
-                idGenerator = idGenerator || function() {
-                    return ObjectID().toString()
-                }
-                if(!idField) {
-                    idField = 'id'
-                }
-                let validate
-                if(schema){
-                    if(ajv){
-                        validate = ajv.compile(schema)
-                    } else {
-                        let defaultAjv = new Ajv( ajvOptions || undefined );
-                        ajvFormats(defaultAjv, ajvFormatsOptions || {})
-                        if(ajvKeywordsOptions){
-                            ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
-                        } else {
-                            ajvKeywords(defaultAjv)
-                        }
-                        validate = defaultAjv.compile( schema )
-                    }
-                }
-                const keyPrefix = `${collectionKey}__`
-                const ensurePrefix = id => {
-                    if( typeof id !== 'string' || id.length < 1){
-                        throw new Error('id must be a non-empty string')
-                    }
-                    return id.startsWith(keyPrefix) ? id : `${keyPrefix}${id}`
-                }
-                /**
+      collection (collectionKey, { schema, idField, ajv, ajvOptions, ajvFormatsOptions, ajvKeywordsOptions, idGenerator, enableAudit, calculateScore } = {}) {
+        if (typeof collectionKey !== 'string' || collectionKey.length < 1) {
+          throw new Error('collectionKey must be a non-empty string')
+        }
+        if (idField && typeof idField !== 'string') {
+          throw new Error('idField must be a string')
+        }
+        idGenerator = idGenerator || function () {
+          return ObjectID().toString()
+        }
+        if (typeof calculateScore !== 'function') {
+          calculateScore = () => new Date().getTime()
+        }
+        if (!idField) {
+          idField = 'id'
+        }
+        let validate
+        if (schema) {
+          if (ajv) {
+            validate = ajv.compile(schema)
+          } else {
+            const defaultAjv = new Ajv(ajvOptions || undefined)
+            ajvFormats(defaultAjv, ajvFormatsOptions || {})
+            if (ajvKeywordsOptions) {
+              ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
+            } else {
+              ajvKeywords(defaultAjv)
+            }
+            validate = defaultAjv.compile(schema)
+          }
+        }
+        const keyPrefix = `${collectionKey}__`
+        const ensurePrefix = id => {
+          if (typeof id !== 'string' || id.length < 1) {
+            throw new Error('id must be a non-empty string')
+          }
+          return id.startsWith(keyPrefix) ? id : `${keyPrefix}${id}`
+        }
+        /**
                  * Find one object in the db by it's id
                  *
                  * @param id The id to lookup
                  */
-                async function findOneById( id ) {
-                    id = ensurePrefix(id)
-                    //hGetAll returns an empty object, even if the key doesn't exist
-                    let exists = await client.exists(id)
-                    if(!exists) return null
-                    let res = await client.hGetAll( id )
-                    if( res ) {
-                        let inflated = await inflate( res, { valueDeserializers, pathExpander } )
-                        if( Array.isArray( inflated ) ) {
-                            inflated[idField] = id
-                        }
-                        return inflated
-                    }
-                    return res
-                }
+        async function findOneById (id) {
+          id = ensurePrefix(id)
+          const res = await client.hGetAll(id)
+          if (Object.keys(res).length === 0) {
+            return null
+          }
+          if (res) {
+            const inflated = await inflate(res, { valueDeserializers, pathExpander })
+            if (Array.isArray(inflated)) {
+              inflated[idField] = id
+            }
+            return inflated
+          }
+          return res
+        }
 
-                async function doSave( obj, auditUser, isPatch ) {
-                    if( !obj || typeof obj !== 'object' )
-                        throw new Error( 'You can only save truthy objects with redish' )
-                    if( Array.isArray( obj ) && obj.length === 0 )
-                        throw new Error( 'Empty arrays cannot be saved' )
-                    let isNew = !obj[idField] || ( enableAudit && !obj.createdAt )
-                    if( isNew ) {
-                        if( !obj[idField] ) obj[idField] = `${keyPrefix}${idGenerator( obj )}`
-                        if( enableAudit ) {
-                            obj.createdAt = new Date().getTime()
-                            if( auditUser ) obj.createdBy = auditUser
-                        }
-                    } else if( enableAudit ) {
-                        obj.updatedAt = new Date().getTime()
-                        if( auditUser ) obj.updatedBy = auditUser
-                    }
-                    obj[idField] = ensurePrefix(obj[idField])
-                    let flatObj = await flatten( obj, { valueSerializers, pathReducer } )
-                    if(validate){
-                        let objToValidate = obj
-                        if(isPatch) {
-                            const existingFields = await client.hGetAll( obj[idField] )
-                            const updated = Object.assign(existingFields, flatObj)
-                            objToValidate = await  inflate( updated, { valueDeserializers, pathExpander } )
-                        }
-                        if( !validate(objToValidate) ) {
-                            const err = new Error(`object with id ${obj[idField]} being saved to collection ${collectionKey} is invalid. `)
-                            err.validationErrors = [].concat(validate.errors)
-                            throw err
-                        }
-                    }
+        async function doSave (obj, auditUser, isPatch) {
+          if (!obj || typeof obj !== 'object') { throw new Error('You can only save truthy objects with redish') }
+          if (Array.isArray(obj) && obj.length === 0) { throw new Error('Empty arrays cannot be saved') }
+          const isNew = !obj[idField] || (enableAudit && !obj.createdAt)
+          if (isNew) {
+            if (!obj[idField]) obj[idField] = `${keyPrefix}${idGenerator(obj)}`
+            if (enableAudit) {
+              obj.createdAt = new Date().getTime()
+              if (auditUser) obj.createdBy = auditUser
+            }
+          } else if (enableAudit) {
+            obj.updatedAt = new Date().getTime()
+            if (auditUser) obj.updatedBy = auditUser
+          }
+          obj[idField] = ensurePrefix(obj[idField])
+          const flatObj = await flatten(obj, { valueSerializers, pathReducer })
+          if (validate) {
+            let objToValidate = obj
+            if (isPatch) {
+              const existingFields = await client.hGetAll(obj[idField])
+              const updated = Object.assign(existingFields, flatObj)
+              objToValidate = await inflate(updated, { valueDeserializers, pathExpander })
+            }
+            if (!validate(objToValidate)) {
+              const err = new Error(`object with id ${obj[idField]} being saved to collection ${collectionKey} is invalid. `)
+              err.validationErrors = [].concat(validate.errors)
+              throw err
+            }
+          }
 
-                    //begin transaction to ensure the zset stays consistent
-                    await client.watch( [obj[idField], collectionKey] )
-                    const multi = client.multi()
-                    await multi.hSet(obj[idField], Object.entries(flatObj))
-                    if( !isNew && !isPatch ) {
-                        //delete any removed keys if this is not a patch
-                        let currentKeys = !isNew && await client.hKeys( obj[idField] ) || []
-                        //Get the current set of object keys and delete any keys that do not exist on the current object
-                        const deletedKeys = currentKeys.filter( ( key ) => !flatObj.hasOwnProperty( key ) )
-                        if( deletedKeys && deletedKeys.length > 0 )
-                            await multi.hDel( obj[idField], ...deletedKeys )
-                    } else if( isNew ) {
-                        await multi.zAdd( collectionKey, {score: 0, value: obj[idField] } )
-                    }
-                    await multi.exec()
-                    return obj
-                }
-                return {
-                    /**
+          // begin transaction to ensure the zset stays consistent
+          await client.watch([obj[idField], collectionKey])
+          const multi = client.multi()
+          await multi.hSet(obj[idField], Object.entries(flatObj))
+          if (!isNew && !isPatch) {
+            // delete any removed keys if this is not a patch
+            const currentKeys = !isNew && (await client.hKeys(obj[idField]) || [])
+            // Get the current set of object keys and delete any keys that do not exist on the current object
+            const deletedKeys = currentKeys.filter((key) => !(key in flatObj))
+            if (deletedKeys && deletedKeys.length > 0) { await multi.hDel(obj[idField], ...deletedKeys) }
+          } else if (isNew) {
+            await multi.zAdd(collectionKey, { score: calculateScore(obj), value: obj[idField] })
+          }
+          await multi.exec()
+          return obj
+        }
+        return {
+          /**
                      * Save an object and optionally add it to a collection
                      *
                      * This treats keys missing from the object as deleted keys.
@@ -169,11 +171,11 @@ module.exports = {
                      * @param obj The object to save
                      * @param auditUser The optional user identifier to use for the "By" audit fields
                      */
-                    //TODO add list of keys to index
-                    async save( obj, auditUser ) {
-                        return doSave( obj, auditUser, false )
-                    },
-                    /**
+          // TODO add list of keys to index
+          async save (obj, auditUser) {
+            return doSave(obj, auditUser, false)
+          },
+          /**
                      * Upsert an object by id
                      * This is similar to save except it only sets keys and will never delete existing keys
                      *
@@ -182,50 +184,51 @@ module.exports = {
                      * @param obj The object to save
                      * @param auditUser The optional user identifier to use for the "By" audit fields
                      */
-                    async upsert( obj, auditUser ) {
-                        return doSave( obj, auditUser, true )
-                    },
-                    /**
+          async upsert (obj, auditUser) {
+            return doSave(obj, auditUser, true)
+          },
+          /**
                      * Delete an object by it's id
                      * @param id The id of the object to delete
                      * @returns {Promise<void>}
                      */
-                    async deleteById( id ) {
-                        id = ensurePrefix(id)
-                        const multi = client.multi()
-                        multi.del( id )
-                        multi.zRem( collectionKey, id )
-                        await multi.exec()
-                    },
-                    /**
-                     * Find all of the objects stored in this collection, one page at a time
+          async deleteById (id) {
+            id = ensurePrefix(id)
+            const multi = client.multi()
+            multi.del(id)
+            multi.zRem(collectionKey, id)
+            await multi.exec()
+          },
+          /**
+                     * Find all the objects stored in this collection, one page at a time
                      * @param page The page number to get
                      * @param size The number of objects to retrieve at a time
+                     * @param {boolean} reverse Whether to return records in reverse order
                      */
-                    async findAll( page = 0, size = 10 ) {
-                        let start = page * size
-                        let end = start + size - 1
-                        const ids = await client.zRange( collectionKey, start, end)
-                        if( ids && ids.length ) {
-                            return await Promise.all( ids.map( id => findOneById( id ) ) )
-                        }
-                        return []
-                    },
-                    // /**
-                    //  * Scan the collection for a object that has the specified value for the field
-                    //  * TODO: support multiple fields and complex boolean statements (foo == 5 and (bar == yep or baz == nope))
-                    //  * @param field
-                    //  * @param value
-                    //  */
-                    // async findOneBy( collectionKey, field, value ) {
-                    //     //for each document in each page of the collection, scan the documents and search for matches
-                    // },
-                    findOneById
-                    //TODO implement prefix search
-                    //https://redislabs.com/ebook/part-2-core-concepts/chapter-6-application-components-in-redis/6-1-autocomplete/6-1-2-address-book-autocomplete/
-                    //TODO add index backfill method for adding an index to an existing collection
-                }
+          async findAll (page = 0, size = 10, reverse = false) {
+            const start = page * size
+            const end = start + size - 1
+            const ids = await client.zRange(collectionKey, start, end, { REV: reverse })
+            if (ids && ids.length) {
+              return await Promise.all(ids.map(id => findOneById(id)))
             }
+            return []
+          },
+          // /**
+          //  * Scan the collection for a object that has the specified value for the field
+          //  * TODO: support multiple fields and complex boolean statements (foo == 5 and (bar == yep or baz == nope))
+          //  * @param field
+          //  * @param value
+          //  */
+          // async findOneBy( collectionKey, field, value ) {
+          //     //for each document in each page of the collection, scan the documents and search for matches
+          // },
+          findOneById
+          // TODO implement prefix search
+          // https://redislabs.com/ebook/part-2-core-concepts/chapter-6-application-components-in-redis/6-1-autocomplete/6-1-2-address-book-autocomplete/
+          // TODO add index backfill method for adding an index to an existing collection
         }
+      }
     }
+  }
 }

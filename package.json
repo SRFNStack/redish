@@ -1,6 +1,6 @@
 {
   "name": "@srfnstack/redish",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Redis Protocol Object/Document storage in collections",
   "author": "Robert Kempton <r@snow87.com>",
   "private": false,
@@ -15,7 +15,9 @@
   "scripts": {
     "test": "jest",
     "test:fun": "jest --config funtests.js",
-    "test:unit": "jest --config unittests.js"
+    "test:unit": "jest --config unittests.js",
+    "lint": "standard --env jest --env mocha",
+    "lint:fix": "standard --env jest --env mocha --fix"
   },
   "repository": {
     "type": "git",
@@ -37,6 +39,7 @@
   },
   "devDependencies": {
     "jest": "^27.2.5",
-    "redis": "^4.1.0"
+    "redis": "^4.1.0",
+    "standard": "^17.0.0"
   }
 }
