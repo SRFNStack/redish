@@ -201,11 +201,13 @@ module.exports = {
           },
           /**
                      * Find all the objects stored in this collection, one page at a time
-                     * @param page The page number to get
-                     * @param size The number of objects to retrieve at a time
+                     * @param {number} page The page number to get
+                     * @param {number} size The number of objects to retrieve at a time
                      * @param {boolean} reverse Whether to return records in reverse order
                      */
           async findAll (page = 0, size = 10, reverse = false) {
+            page = parseInt(page)
+            size = parseInt(size)
             const start = page * size
             const end = start + size - 1
             const ids = await client.zRange(collectionKey, start, end, { REV: reverse })
