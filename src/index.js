@@ -38,21 +38,129 @@ module.exports = {
 
     if (!client) throw new Error('Client must be set before using the db')
 
+    async function flattenAndValidate (obj, validate, isPatch, idField) {
+      const flatObj = await flatten(obj, { valueSerializers, pathReducer })
+      if (validate) {
+        let objToValidate = obj
+        if (isPatch) {
+          const existingFields = await client.hGetAll(obj[idField])
+          const updated = Object.assign(existingFields, flatObj)
+          objToValidate = await inflate(updated, { valueDeserializers, pathExpander })
+        }
+        if (!validate(objToValidate)) {
+          const err = new Error(`object with id ${obj[idField]} is invalid. `)
+          err.validationErrors = [].concat(validate.errors)
+          throw err
+        }
+      }
+      return flatObj
+    }
+
+    function initValidate (validate, schema, ajv, ajvOptions, ajvFormatsOptions, ajvKeywordsOptions) {
+      if (typeof validate !== 'function' && schema) {
+        if (ajv) {
+          validate = ajv.compile(schema)
+        } else {
+          const defaultAjv = new Ajv(ajvOptions || undefined)
+          ajvFormats(defaultAjv, ajvFormatsOptions || {})
+          if (ajvKeywordsOptions) {
+            ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
+          } else {
+            ajvKeywords(defaultAjv)
+          }
+          validate = defaultAjv.compile(schema)
+        }
+      }
+      return validate
+    }
+
+    async function deleteRemovedKeys (isNew, key, flatObj, multi) {
+      const currentKeys = !isNew && (await client.hKeys(key) || [])
+      // Get the current set of object keys and delete any keys that do not exist on the current object
+      const deletedKeys = currentKeys.filter((key) => !(key in flatObj))
+      if (deletedKeys && deletedKeys.length > 0) { await multi.hDel(key, ...deletedKeys) }
+    }
+
     return {
+      /**
+       * A single object value identified by a single key, unassociated with any other records
+       *
+       * @param key The key of the object
+       * @param validate A pre-compiled ajv function to use for validation.
+       *                Must follow the ajv model and set an errors property on the function after detecting an invalid object.
+       * @param schema A json schema to use for validation on save
+       * @param idField The name of the idField to use as the unique ID. If unset, the 'id' field is used.
+       *                If set, it will be prefixed with the collection key to ensure unique keys across collections.
+       * @param ajv A pre-created instance of ajv to use for schema validation.
+       * @param ajvOptions An Options object to initialize ajv with. Not used if schema is not set or if ajv instance is passed.
+       *                   ajv-formats are installed when an ajv instance is not passed.
+       * @param ajvFormatsOptions An Options object to pass to ajv-formats, ignored when ajv is set.
+       * @param ajvKeywordsOptions An Options object to pass to ajv-keywords, ignored when ajv is set.
+       * @returns {{load(): void, save(*, *, *): Promise<*>}|*}
+       */
+      singleton(key, {
+        validate,
+        schema,
+        idField,
+        ajv,
+        ajvOptions,
+        ajvFormatsOptions,
+        ajvKeywordsOptions
+      } = {}) {
+        if (!key || typeof key !== 'string') {
+          throw new Error('A string key must be provided')
+        }
+        this.key = key
+        validate = initValidate(validate, schema, ajv, ajvOptions, ajvFormatsOptions, ajvKeywordsOptions)
+
+        const doSave = async (obj, isPatch) => {
+          if (!obj || typeof obj !== 'object') {
+            throw new Error('Only object singletons are supported')
+          }
+          const flatObj = await flattenAndValidate(obj, validate, isPatch, idField)
+
+          await client.watch([key])
+          const multi = client.multi()
+          await multi.hSet(key, Object.entries(flatObj))
+          if (!isPatch) {
+            // delete any removed keys if this is not a patch
+            await deleteRemovedKeys(false, key, flatObj, multi)
+          }
+          await multi.exec()
+          return obj
+        }
+
+        return {
+          async save(obj) {
+            return doSave(obj, false)
+          },
+          async upsert(obj) {
+            return doSave(obj, true)
+          },
+          async load() {
+            const res = await client.hGetAll(key)
+            if (Object.keys(res).length === 0) {
+              return null
+            }
+            return res && inflate(res, { valueDeserializers, pathExpander })
+          }
+        }
+      },
+
       /**
        * Create a collection of objects. The items in the collection are maintained in a zset to allow finding everything and pagination
        * @param collectionKey The name of the collection. The collection key is appended to the idField to ensure unique keys across collections
        * @param validate A pre-compiled ajv function to use for validation.
        *                Must follow the ajv model and set an errors property on the function after detecting an invalid object.
        * @param schema A json schema to use for validation on save
-       * @param idField The name of the idField to use as the unique Id. If unset, the 'id' field is used.
+       * @param idField The name of the idField to use as the unique ID. If unset, the 'id' field is used.
        *                If set, it will be prefixed with the collection key to ensure unique keys across collections.
        * @param ajv A pre-created instance of ajv to use for schema validation.
        * @param ajvOptions An Options object to initialize ajv with. Not used if schema is not set or if ajv instance is passed.
        *                   ajv-formats are installed when an ajv instance is not passed.
-       * @param ajvFormatsOptions An Options object to pass to ajv-formats. ajv-formats is not installed and these options are not used if an ajv instance is passed.
-       * @param ajvKeywordsOptions An Options object to pass to ajv-keywords. ajv-keywords is not installed and these options are not used if an ajv instance is passed.
-       * @param idGenerator A function that receives the object being saved and generates a new id for it. The default is to create a bson objectid.
+       * @param ajvFormatsOptions An Options object to pass to ajv-formats, ignored when ajv is set.
+       * @param ajvKeywordsOptions An Options object to pass to ajv-keywords, ignored when ajv is set.
+       * @param idGenerator A function that receives the object to save and generates a new id for it. The default is to create a bson objectid.
        * @param enableAudit Whether to enable auditing addition and management of auditing fields createdBy, createdAt, updatedBy, updatedAt
        * @param {(object) => number} calculateScore A function to calculate the score to use when adding a new object to a zset.
        *          This score determines the order records are returned in when calling findAll.
@@ -86,20 +194,8 @@ module.exports = {
           idField = 'id'
         }
 
-        if (typeof validate !== 'function' && schema) {
-          if (ajv) {
-            validate = ajv.compile(schema)
-          } else {
-            const defaultAjv = new Ajv(ajvOptions || undefined)
-            ajvFormats(defaultAjv, ajvFormatsOptions || {})
-            if (ajvKeywordsOptions) {
-              ajvKeywords(defaultAjv, ajvKeywordsOptions || [])
-            } else {
-              ajvKeywords(defaultAjv)
-            }
-            validate = defaultAjv.compile(schema)
-          }
-        }
+        validate = initValidate(validate, schema, ajv, ajvOptions, ajvFormatsOptions, ajvKeywordsOptions)
+
         const keyPrefix = `${collectionKey}__`
         const ensurePrefix = id => {
           if (typeof id !== 'string' || id.length < 1) {
@@ -109,7 +205,7 @@ module.exports = {
         }
 
         /**
-         * Find one object in the db by it's id
+         * Find one object in the db by its id
          *
          * @param id The id to lookup
          */
@@ -144,31 +240,14 @@ module.exports = {
             if (auditUser) obj.updatedBy = auditUser
           }
           obj[idField] = ensurePrefix(obj[idField])
-          const flatObj = await flatten(obj, { valueSerializers, pathReducer })
-          if (validate) {
-            let objToValidate = obj
-            if (isPatch) {
-              const existingFields = await client.hGetAll(obj[idField])
-              const updated = Object.assign(existingFields, flatObj)
-              objToValidate = await inflate(updated, { valueDeserializers, pathExpander })
-            }
-            if (!validate(objToValidate)) {
-              const err = new Error(`object with id ${obj[idField]} being saved to collection ${collectionKey} is invalid. `)
-              err.validationErrors = [].concat(validate.errors)
-              throw err
-            }
-          }
-
+          const flatObj = await flattenAndValidate(obj, validate, isPatch, idField)
           // begin transaction to ensure the zset stays consistent
           await client.watch([obj[idField], collectionKey])
           const multi = client.multi()
           await multi.hSet(obj[idField], Object.entries(flatObj))
           if (!isNew && !isPatch) {
             // delete any removed keys if this is not a patch
-            const currentKeys = !isNew && ( await client.hKeys(obj[idField]) || [] )
-            // Get the current set of object keys and delete any keys that do not exist on the current object
-            const deletedKeys = currentKeys.filter((key) => !( key in flatObj ))
-            if (deletedKeys && deletedKeys.length > 0) { await multi.hDel(obj[idField], ...deletedKeys) }
+            await deleteRemovedKeys(isNew, obj[idField], flatObj, multi)
           } else if (isNew) {
             await multi.zAdd(collectionKey, { score: calculateScore(obj), value: obj[idField] })
           }
@@ -193,6 +272,8 @@ module.exports = {
           /**
            * Upsert an object by id
            * This is similar to save except it only sets keys and will never delete existing keys
+           *
+           * It's sort of a patch, but it will create a new record if non exists
            *
            * If an id is not provided on the object one will be generated
            *
@@ -232,7 +313,7 @@ module.exports = {
             return []
           },
           // /**
-          //  * Scan the collection for a object that has the specified value for the field
+          //  * Scan the collection for an object that has the specified value for the field
           //  * TODO: support multiple fields and complex boolean statements (foo == 5 and (bar == yep or baz == nope))
           //  * @param field
           //  * @param value
